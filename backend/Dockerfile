@@ -1,7 +1,7 @@
 # ==============================================================================
 # AuditPulse backend — Dockerfile
 # ==============================================================================
-FROM python:3.11-slim AS base
+FROM python:3.11-slim-bookworm AS base
 
 # Prevents Python from writing .pyc files and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1 \
