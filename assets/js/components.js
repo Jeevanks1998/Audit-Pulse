@@ -52,7 +52,7 @@ window.Components = window.Components || {};
         '<td>' + U.escapeHtml(audit.label || '') + '</td>' +
         '<td><span class="score-chip ' + chipClass + '">' + audit.score + '</span></td>' +
         '<td class="text-tertiary">' + U.escapeHtml(U.formatRelativeTime(audit.completedAt)) + '</td>' +
-        '<td><a href="report.html" class="btn btn--ghost btn--sm">View report</a></td>' +
+        '<td><a href="report.html?id=' + encodeURIComponent(audit.id) + '" class="btn btn--ghost btn--sm">View report</a></td>' +
       '</tr>'
     );
   }
