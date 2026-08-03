@@ -193,6 +193,13 @@ window.Utils = (function () {
 
   function downloadTextFile(filename, content, mime) {
     var blob = new Blob([content], { type: mime || 'text/plain' });
+    downloadBlob(filename, blob);
+  }
+
+  // Same trigger-a-download dance as downloadTextFile, but for a Blob we
+  // already have (e.g. a PDF fetched as a binary response) rather than text
+  // we need to wrap in one ourselves.
+  function downloadBlob(filename, blob) {
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
@@ -201,6 +208,13 @@ window.Utils = (function () {
     a.click();
     document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  // Reads a single query-string parameter from the current page URL, e.g.
+  // getQueryParam('id') on "report.html?id=42" -> "42". Returns null if
+  // the param isn't present.
+  function getQueryParam(name) {
+    return new URLSearchParams(window.location.search).get(name);
   }
 
   return {
@@ -221,6 +235,8 @@ window.Utils = (function () {
     storageSetJSON: storageSetJSON,
     storageRemove: storageRemove,
     copyToClipboard: copyToClipboard,
-    downloadTextFile: downloadTextFile
+    downloadTextFile: downloadTextFile,
+    downloadBlob: downloadBlob,
+    getQueryParam: getQueryParam
   };
 })();
