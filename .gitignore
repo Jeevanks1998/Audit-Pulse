@@ -1,0 +1,19 @@
+# --- Python / backend ---
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/.env
+backend/screenshots/
+backend/.pytest_cache/
+
+# --- Node (if any tooling added later) ---
+node_modules/
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/
+
+# --- Vercel ---
+.vercel/
