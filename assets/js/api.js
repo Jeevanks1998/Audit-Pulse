@@ -59,6 +59,29 @@ window.Api = (function () {
     });
   }
 
+  // Same auth header as request(), but for endpoints that return a binary
+  // body (the PDF export) instead of JSON — request() always calls
+  // res.json() on the response, which would choke on PDF bytes.
+  function requestBlob(path) {
+    var headers = {};
+    var session = getSession();
+    if (session && session.token) {
+      headers['Authorization'] = 'Bearer ' + session.token;
+    }
+    return fetch(BASE + path, { headers: headers }).then(function (res) {
+      if (!res.ok) {
+        if (res.status === 401) {
+          clearSession();
+          if (!/login\.html$/.test(window.location.pathname)) {
+            window.location.href = 'login.html';
+          }
+        }
+        throw new Error('Request failed (' + res.status + ')');
+      }
+      return res.blob();
+    });
+  }
+
   /* -------------------------------- auth -------------------------------- */
 
   var auth = {
@@ -163,6 +186,22 @@ window.Api = (function () {
       return request('/audits/recent').then(function (list) {
         return (list || []).map(mapAuditToRecent);
       });
+    },
+
+    // Consent-module detail for one audit (banner presence, cookie/tracker
+    // findings, and the banner screenshot) — 404s if the audit didn't run
+    // with the "consent" module enabled.
+    getConsent: function (auditId) {
+      return request('/audits/' + auditId + '/consent').then(function (c) {
+        return {
+          hasCookieBanner: c.has_cookie_banner,
+          bannerBlocksScriptsPreConsent: c.banner_blocks_scripts_pre_consent,
+          gdprCompliant: c.gdpr_compliant,
+          ccpaCompliant: c.ccpa_compliant,
+          consentScore: c.consent_score,
+          bannerScreenshotUrl: c.banner_screenshot_url ? (CFG.API_ORIGIN + c.banner_screenshot_url) : null
+        };
+      });
     }
   };
 
@@ -203,6 +242,58 @@ window.Api = (function () {
       tick();
     });
   }
+
+  /* ------------------------------- reports ------------------------------- */
+  // Backs report.html: the real score grid / findings / AI recommendations
+  // for one completed audit, plus the share and PDF-download actions.
+
+  function mapReport(d) {
+    return {
+      auditId: d.audit_id,
+      url: d.url,
+      overall: d.overall,
+      generatedAt: d.generated_at,
+      shareUrl: d.share_url,
+      scoreGrid: (d.score_grid || []).map(function (c) {
+        return { module: c.module, label: c.label, score: c.score, targetSection: c.target_section };
+      }),
+      findings: (d.findings || []).map(function (f) {
+        return { module: f.module, severity: f.severity, title: f.title, description: f.description };
+      }),
+      // Only present via reports.getFull() (GET /reports/{id}/export.json) —
+      // undefined when the plain reports.get() call was used instead.
+      priorities: d.priorities ? d.priorities.map(function (p) {
+        return { rank: p.rank, module: p.module, severity: p.severity, title: p.title, description: p.description, effort: p.effort };
+      }) : undefined
+    };
+  }
+
+  var reports = {
+    // Lightweight report view (score grid + findings) for report.html's
+    // main render.
+    get: function (auditId) {
+      return request('/reports/' + auditId).then(mapReport);
+    },
+
+    // Full, AI-enriched export (adds prioritized recommendations) — same
+    // data report.html's "AI Recommendations" card needs, at the cost of
+    // a slower first call (cached server-side after that).
+    getFull: function (auditId) {
+      return request('/reports/' + auditId + '/export.json').then(mapReport);
+    },
+
+    share: function (auditId) {
+      return request('/reports/' + auditId + '/share', { method: 'POST' }).then(function (d) {
+        return d.share_url;
+      });
+    },
+
+    // Fetches the real PDF export and returns it as a Blob for
+    // Utils.downloadBlob() to save — see downloadPdfBtn in report.js.
+    exportPdfBlob: function (auditId) {
+      return requestBlob('/reports/' + auditId + '/export');
+    }
+  };
 
   /* ------------------------------ settings ------------------------------ */
 
@@ -262,5 +353,5 @@ window.Api = (function () {
     }
   };
 
-  return { auth: auth, audits: audits, settings: settings };
+  return { auth: auth, audits: audits, settings: settings, reports: reports };
 })();
