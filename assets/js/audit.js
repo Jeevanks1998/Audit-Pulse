@@ -158,7 +158,7 @@
       }).then(function (report) {
         if (progressStatusText) progressStatusText.textContent = 'Complete — redirecting to report…';
         window.Notifications.success('Audit complete', U.hostnameOf(config.url) + ' scored ' + report.overall + '/100.');
-        setTimeout(function () { window.location.href = 'report.html'; }, 900);
+        setTimeout(function () { window.location.href = 'report.html?id=' + encodeURIComponent(report.id); }, 900);
       }).catch(function (err) {
         window.Loader.setButtonLoading(startBtn, false);
         window.Notifications.error('Audit failed', err.message || 'Something went wrong while auditing this site.');
