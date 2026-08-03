@@ -12,6 +12,13 @@ window.APP_CONFIG = {
   // deployed backend on a different origin.
   API_BASE_URL: window.__AUDITPULSE_API_BASE__ || 'http://localhost:8000/api/v1',
 
+  // Backend origin with the /api/v1 suffix stripped — used for anything the
+  // backend serves outside the API itself, e.g. the /screenshots static
+  // mount (see backend/main.py) that consent-banner screenshots live under.
+  get API_ORIGIN() {
+    return this.API_BASE_URL.replace(/\/api\/v1\/?$/, '');
+  },
+
   STORAGE_KEYS: {
     THEME: 'auditpulse:theme',
     SESSION: 'auditpulse:session',
