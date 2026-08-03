@@ -111,17 +111,17 @@
       <!-- Banner -->
       <div class="card report-banner animate-in">
         <div class="report-banner__site">
-          <div class="report-banner__favicon">E</div>
+          <div class="report-banner__favicon" id="bannerFavicon">E</div>
           <div>
-            <div class="report-banner__url">example.com</div>
-            <div class="report-banner__meta">Full site · 100 pages · completed 2 min ago</div>
+            <div class="report-banner__url" id="bannerUrl">example.com</div>
+            <div class="report-banner__meta" id="bannerMeta">Full site · 100 pages · completed 2 min ago</div>
           </div>
-          <div class="vring vring--md vring--animated" data-band="good" style="--ring-circumference:239; margin-left: var(--sp-6);">
+          <div class="vring vring--md vring--animated" id="bannerScoreRing" data-band="good" style="--ring-circumference:239; margin-left: var(--sp-6);">
             <svg width="96" height="96" viewBox="0 0 96 96">
               <circle class="vring__track" cx="48" cy="48" r="38" stroke-width="8"/>
-              <circle class="vring__value" cx="48" cy="48" r="38" stroke-width="8" stroke-dasharray="239" stroke-dashoffset="19"/>
+              <circle class="vring__value" id="bannerScoreCircle" cx="48" cy="48" r="38" stroke-width="8" stroke-dasharray="239" stroke-dashoffset="19"/>
             </svg>
-            <div class="vring__label">92<small>Score</small></div>
+            <div class="vring__label" id="bannerScoreLabel">92<small>Score</small></div>
           </div>
         </div>
         <div class="report-banner__actions">
@@ -175,66 +175,21 @@
         <div class="card card__pad">
           <div class="card__head">
             <h3>Critical Issues</h3>
-            <span class="badge badge--error">5 open</span>
+            <span class="badge badge--error" id="criticalIssuesBadge">5 open</span>
           </div>
-          <div class="issue-list">
-            <div class="issue-row">
-              <span class="issue-row__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
-              <div class="issue-row__body"><div class="issue-row__title">Missing meta description</div><div class="issue-row__desc">4 pages affected</div></div>
-              <span class="issue-row__sev badge badge--error">High</span>
-            </div>
-            <div class="issue-row">
-              <span class="issue-row__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
-              <div class="issue-row__body"><div class="issue-row__title">Large unoptimized images</div><div class="issue-row__desc">Hero image is 3.2MB</div></div>
-              <span class="issue-row__sev badge badge--error">High</span>
-            </div>
-            <div class="issue-row">
-              <span class="issue-row__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
-              <div class="issue-row__body"><div class="issue-row__title">Missing ALT attributes</div><div class="issue-row__desc">12 images without alt text</div></div>
-              <span class="issue-row__sev badge badge--warning">Medium</span>
-            </div>
-            <div class="issue-row">
-              <span class="issue-row__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
-              <div class="issue-row__body"><div class="issue-row__title">Broken internal links</div><div class="issue-row__desc">3 links return 404</div></div>
-              <span class="issue-row__sev badge badge--warning">Medium</span>
-            </div>
-            <div class="issue-row">
-              <span class="issue-row__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
-              <div class="issue-row__body"><div class="issue-row__title">Cookie banner close button</div><div class="issue-row__desc">Doesn't block trackers on dismiss</div></div>
-              <span class="issue-row__sev badge badge--warning">Medium</span>
-            </div>
+          <div class="issue-list" id="issueList">
+            <div class="issue-row"><div class="issue-row__body"><div class="issue-row__title">Loading…</div></div></div>
           </div>
         </div>
       </div>
 
       <!-- AI Recommendations -->
-      <div class="card card__pad" style="margin-bottom: var(--sp-6);">
+      <div class="card card__pad" id="aiRecoCard" style="margin-bottom: var(--sp-6); display:none;">
         <div class="card__head">
           <h3>AI Recommendations</h3>
           <span class="card__head-sub">Ranked by expected impact</span>
         </div>
-        <div class="reco-list">
-          <div class="reco-item">
-            <span class="reco-item__num">01</span>
-            <div><div class="reco-item__title">Optimize hero images</div><div class="reco-item__desc">Compress and serve WebP to cut page weight by ~60%</div></div>
-            <span class="reco-item__impact badge badge--success">High impact</span>
-          </div>
-          <div class="reco-item">
-            <span class="reco-item__num">02</span>
-            <div><div class="reco-item__title">Improve LCP</div><div class="reco-item__desc">Preload the hero image and defer non-critical scripts</div></div>
-            <span class="reco-item__impact badge badge--success">High impact</span>
-          </div>
-          <div class="reco-item">
-            <span class="reco-item__num">03</span>
-            <div><div class="reco-item__title">Fix contrast</div><div class="reco-item__desc">Body text at 3.8:1 falls short of WCAG AA (4.5:1)</div></div>
-            <span class="reco-item__impact badge badge--warning">Medium impact</span>
-          </div>
-          <div class="reco-item">
-            <span class="reco-item__num">04</span>
-            <div><div class="reco-item__title">Improve heading structure</div><div class="reco-item__desc">Two H1s found on /pricing — keep one per page</div></div>
-            <span class="reco-item__impact badge badge--warning">Medium impact</span>
-          </div>
-        </div>
+        <div class="reco-list" id="recoList"></div>
       </div>
 
       <hr class="divider">
@@ -243,21 +198,10 @@
       <section id="seo" class="module-section">
         <div class="module-section__head">
           <h2>SEO Report</h2>
-          <span class="score-chip score-chip--good">95 / 100</span>
+          <span class="score-chip score-chip--good" id="seoScoreChip">95 / 100</span>
         </div>
         <div class="card card__pad">
-          <div class="check-grid">
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Title tag</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Meta description</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Canonical tag</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Sitemap.xml</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Robots.txt</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Open Graph tags</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Twitter card</span></div>
-            <div class="check-item check-item--fail"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span><span class="check-item__label">Missing ALT text</span></div>
-            <div class="check-item check-item--fail"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span><span class="check-item__label">Duplicate H1</span></div>
-            <div class="check-item check-item--fail"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span><span class="check-item__label">Broken internal link</span></div>
-          </div>
+          <div class="check-grid" id="seoCheckGrid"></div>
         </div>
       </section>
 
@@ -265,16 +209,11 @@
       <section id="performance" class="module-section">
         <div class="module-section__head">
           <h2>Performance</h2>
-          <span class="score-chip score-chip--good">89 / 100</span>
+          <span class="score-chip score-chip--good" id="performanceScoreChip">89 / 100</span>
         </div>
         <div class="card card__pad">
-          <div class="detail-metrics">
-            <div class="detail-metric"><div class="detail-metric__label">LCP</div><div class="detail-metric__value good">2.1 sec</div></div>
-            <div class="detail-metric"><div class="detail-metric__label">CLS</div><div class="detail-metric__value good">0.02</div></div>
-            <div class="detail-metric"><div class="detail-metric__label">INP</div><div class="detail-metric__value good">120 ms</div></div>
-            <div class="detail-metric"><div class="detail-metric__label">Speed Index</div><div class="detail-metric__value">2.8 sec</div></div>
-          </div>
-          <p class="text-sm">Recommendations: compress JS bundles, optimize CSS delivery, enable lazy loading, and reduce hero image size.</p>
+          <p class="text-sm" style="margin-bottom: var(--sp-3); color: var(--text-tertiary);">Lab metrics (LCP/CLS/INP) aren't persisted by the backend yet, so they're not shown here — see the findings below for what was actually detected.</p>
+          <div class="check-grid" id="performanceCheckGrid"></div>
         </div>
       </section>
 
@@ -282,17 +221,10 @@
       <section id="accessibility" class="module-section">
         <div class="module-section__head">
           <h2>Accessibility</h2>
-          <span class="score-chip score-chip--good">91 / 100</span>
+          <span class="score-chip score-chip--good" id="accessibilityScoreChip">91 / 100</span>
         </div>
         <div class="card card__pad">
-          <div class="check-grid">
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Contrast ratios</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Form labels</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">ARIA roles</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Keyboard navigation</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Heading order</span></div>
-            <div class="check-item check-item--warn"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span><span class="check-item__label">2 images missing ALT</span></div>
-          </div>
+          <div class="check-grid" id="accessibilityCheckGrid"></div>
         </div>
       </section>
 
@@ -300,17 +232,10 @@
       <section id="analytics" class="module-section">
         <div class="module-section__head">
           <h2>Analytics Detection</h2>
-          <span class="score-chip score-chip--good">97 / 100</span>
+          <span class="score-chip" id="analyticsScoreChip" style="display:none;"></span>
         </div>
         <div class="card card__pad">
-          <div class="check-grid">
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">GA4</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Google Tag Manager</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Meta Pixel</span></div>
-            <div class="check-item check-item--fail"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span><span class="check-item__label">Adobe Analytics — not found</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Microsoft Clarity</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Hotjar</span></div>
-          </div>
+          <p class="text-sm" id="analyticsPlaceholder" style="color: var(--text-tertiary);">The backend records analytics/tracker detection per audit, but doesn't expose it through the API yet — so this section can't show real data. Not broken, just not built out.</p>
         </div>
       </section>
 
@@ -318,19 +243,18 @@
       <section id="consent" class="module-section">
         <div class="module-section__head">
           <h2>Consent Banner Audit</h2>
-          <span class="score-chip score-chip--good">90 / 100</span>
+          <span class="score-chip score-chip--good" id="consentScoreChip">— / 100</span>
         </div>
         <div class="card card__pad">
-          <div class="check-grid" style="margin-bottom: var(--sp-4);">
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Accept button behavior</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Reject button behavior</span></div>
-            <div class="check-item check-item--warn"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span><span class="check-item__label">Close button — failed</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Cookies blocked pre-consent</span></div>
-          </div>
-          <div class="screenshot-strip">
-            <div class="screenshot-strip__item"><span>Before</span></div>
-            <div class="screenshot-strip__item"><span>After accept</span></div>
-            <div class="screenshot-strip__item"><span>After reject</span></div>
+          <div class="check-grid" id="consentCheckGrid" style="margin-bottom: var(--sp-4);"></div>
+          <!-- The backend only ever captures one banner screenshot (not
+               separate before/accept/reject states — see models/consent.py),
+               so we show the single real screenshot here rather than the
+               three-state placeholder the demo used to show. -->
+          <div id="consentScreenshotWrap">
+            <div class="screenshot-strip">
+              <div class="screenshot-strip__item"><span>Loading…</span></div>
+            </div>
           </div>
         </div>
       </section>
@@ -339,17 +263,10 @@
       <section id="security" class="module-section">
         <div class="module-section__head">
           <h2>Security</h2>
-          <span class="score-chip score-chip--good">94 / 100</span>
+          <span class="score-chip score-chip--good" id="securityScoreChip">94 / 100</span>
         </div>
         <div class="card card__pad">
-          <div class="check-grid">
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">HTTPS</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Valid SSL</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">HSTS enabled</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">CSP configured</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">No mixed content</span></div>
-            <div class="check-item check-item--pass"><span class="check-item__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span><span class="check-item__label">Security headers</span></div>
-          </div>
+          <div class="check-grid" id="securityCheckGrid"></div>
         </div>
       </section>
 
