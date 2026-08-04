@@ -94,6 +94,21 @@ class ConsentOut(BaseModel):
         return f"/screenshots/{os.path.basename(self.banner_screenshot_path)}"
 
 
+class AnalyticsOut(BaseModel):
+    """Result of the analytics-module scan (services.audit_service._write_analytics_result)."""
+
+    trackers_detected: List[str] = Field(default_factory=list)
+    tag_manager_detected: bool
+    gtm_container_id: Optional[str] = None
+    ga_measurement_id: Optional[str] = None
+    data_layer_present: bool
+    pageview_events_found: int
+    custom_events_found: int
+    analytics_score: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AuditStatsOut(BaseModel):
     total_audits: int
     seo_issues: int
