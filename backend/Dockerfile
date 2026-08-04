@@ -10,6 +10,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Celery's `-A` app-loading only adds the cwd to sys.path while it resolves
+# the app object itself, then removes it again — so any top-of-file import
+# (workers.celery_worker, scheduler.jobs, etc.) works fine at startup, but
+# the deferred/lazy imports inside every task body (models, services,
+# reports, pdf, crawler, ...) fail with ModuleNotFoundError once a task
+# actually runs, because cwd is already gone from sys.path by then.
+# uvicorn doesn't hit this — it inserts cwd itself when resolving
+# "main:app" and keeps it there. Pinning PYTHONPATH here makes /app
+# permanently importable for both processes, regardless of Celery's
+# start-up-only sys.path dance.
+ENV PYTHONPATH=/app
+
 # System dependencies needed to build asyncpg / cryptography wheels
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
