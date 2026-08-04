@@ -202,6 +202,24 @@ window.Api = (function () {
           bannerScreenshotUrl: c.banner_screenshot_url ? (CFG.API_ORIGIN + c.banner_screenshot_url) : null
         };
       });
+    },
+
+    // Analytics/tag-detection detail for one audit (GA4/GTM/Meta Pixel/etc.
+    // detected, dataLayer presence, event counts) — 404s if the audit
+    // didn't run with the "analytics" module enabled.
+    getAnalytics: function (auditId) {
+      return request('/audits/' + auditId + '/analytics').then(function (a) {
+        return {
+          trackersDetected: a.trackers_detected || [],
+          tagManagerDetected: a.tag_manager_detected,
+          gtmContainerId: a.gtm_container_id,
+          gaMeasurementId: a.ga_measurement_id,
+          dataLayerPresent: a.data_layer_present,
+          pageviewEventsFound: a.pageview_events_found,
+          customEventsFound: a.custom_events_found,
+          analyticsScore: a.analytics_score
+        };
+      });
     }
   };
 
@@ -295,6 +313,43 @@ window.Api = (function () {
     }
   };
 
+  /* --------------------------------- ai ---------------------------------- */
+  // The AI-assistant chat panel on report.html — POST /ai/{id}/chat, with
+  // the running Q&A history sent back each turn so follow-up questions
+  // stay in context (the backend is stateless between requests).
+
+  var ai = {
+    chat: function (auditId, question, history) {
+      return request('/ai/' + auditId + '/chat', {
+        method: 'POST',
+        body: { question: question, history: history || [] }
+      }).then(function (d) {
+        return d.answer;
+      });
+    }
+  };
+
+  /* ------------------------------- history -------------------------------- */
+  // Real account-activity feed (audits started/completed, settings changes,
+  // logins, scheduled runs, ...) — GET /history/activity. Backs the
+  // notification bell in app.js; replaces the old hardcoded mock list.
+
+  var history = {
+    getActivity: function (pageSize) {
+      return request('/history/activity?page_size=' + (pageSize || 10)).then(function (d) {
+        return (d.items || []).map(function (item) {
+          return {
+            id: item.id,
+            eventType: item.event_type,
+            description: item.description,
+            auditId: item.audit_id,
+            createdAt: item.created_at
+          };
+        });
+      });
+    }
+  };
+
   /* ------------------------------ settings ------------------------------ */
 
   function mapSettingsOut(s) {
@@ -353,5 +408,5 @@ window.Api = (function () {
     }
   };
 
-  return { auth: auth, audits: audits, settings: settings, reports: reports };
+  return { auth: auth, audits: audits, settings: settings, reports: reports, ai: ai, history: history };
 })();
