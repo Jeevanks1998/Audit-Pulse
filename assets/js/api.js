@@ -1,412 +1,349 @@
 /* ==========================================================================
-   api.js — talks to the real AuditPulse FastAPI backend (see /backend).
-   Same public shape as the old mock ({ auth, audits, settings }) so every
-   page (auth.js, audit.js, dashboard.js, history.js, app.js) works
-   unmodified — only the implementation underneath changed.
-   Exposed as window.Api.
+   app.js — runs on every page. Wires up the shared app-shell chrome
+   (sidebar, theme toggle, profile menu, notification bell) plus the
+   settings.html page, which has no dedicated script file of its own.
    ========================================================================== */
 
-window.Api = (function () {
+(function () {
   var U = window.Utils;
   var CFG = window.APP_CONFIG;
-  var BASE = CFG.API_BASE_URL;
 
-  /* ------------------------------ session ------------------------------ */
-  // Kept in localStorage (not just memory) so getSession()/getUser() can
-  // stay synchronous, matching how auth.js/app.js already call them.
+  document.addEventListener('DOMContentLoaded', function () {
+    applyStoredTheme();
+    initSidebar();
+    initThemeToggle();
+    initProfileMenu();
+    initNotificationBell();
+    highlightActiveNav();
+    initSettingsPage();
+  });
 
-  function getSession() {
-    return U.storageGetJSON(CFG.STORAGE_KEYS.SESSION, null);
+  /* ---------------------------------------------------------------- */
+  /* Theme                                                              */
+  /* ---------------------------------------------------------------- */
+
+  function systemPrefersDark() {
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
 
-  function saveSession(session) {
-    U.storageSetJSON(CFG.STORAGE_KEYS.SESSION, session);
+  function applyTheme(mode) {
+    var resolved = mode === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : mode;
+    if (resolved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+
+    U.qsa('.theme-toggle button').forEach(function (btn) {
+      var isDarkBtn = /dark/i.test(btn.getAttribute('aria-label') || '');
+      btn.classList.toggle('is-active', isDarkBtn === (resolved === 'dark'));
+    });
+
+    U.qsa('.theme-swatch').forEach(function (swatch) {
+      swatch.classList.toggle('is-active', swatch.dataset.themeChoice === mode);
+    });
   }
 
-  function clearSession() {
-    U.storageRemove(CFG.STORAGE_KEYS.SESSION);
+  function applyStoredTheme() {
+    var mode = U.storageGet(CFG.STORAGE_KEYS.THEME, 'light');
+    applyTheme(mode);
   }
 
-  /* -------------------------------- fetch -------------------------------- */
-
-  function request(path, options) {
-    options = options || {};
-    var headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
-    var session = getSession();
-    if (session && session.token) {
-      headers['Authorization'] = 'Bearer ' + session.token;
-    }
-
-    return fetch(BASE + path, {
-      method: options.method || 'GET',
-      headers: headers,
-      body: options.body ? JSON.stringify(options.body) : undefined
-    }).then(function (res) {
-      if (res.status === 204) return null;
-      return res.json().catch(function () { return null; }).then(function (data) {
-        if (!res.ok) {
-          if (res.status === 401) {
-            clearSession();
-            if (!/login\.html$/.test(window.location.pathname)) {
-              window.location.href = 'login.html';
-            }
-          }
-          var message = (data && (data.error || data.detail)) || ('Request failed (' + res.status + ')');
-          throw new Error(typeof message === 'string' ? message : 'Request failed.');
-        }
-        return data;
+  function initThemeToggle() {
+    U.qsa('.theme-toggle button').forEach(function (btn) {
+      U.on(btn, 'click', function () {
+        var isDark = /dark/i.test(btn.getAttribute('aria-label') || '');
+        var mode = isDark ? 'dark' : 'light';
+        U.storageSet(CFG.STORAGE_KEYS.THEME, mode);
+        applyTheme(mode);
       });
     });
   }
 
-  // Same auth header as request(), but for endpoints that return a binary
-  // body (the PDF export) instead of JSON — request() always calls
-  // res.json() on the response, which would choke on PDF bytes.
-  function requestBlob(path) {
-    var headers = {};
-    var session = getSession();
-    if (session && session.token) {
-      headers['Authorization'] = 'Bearer ' + session.token;
+  /* ---------------------------------------------------------------- */
+  /* Sidebar (mobile off-canvas)                                       */
+  /* ---------------------------------------------------------------- */
+
+  function initSidebar() {
+    var sidebar = document.getElementById('sidebar');
+    var backdrop = document.getElementById('sidebarBackdrop');
+    var toggle = document.getElementById('menuToggle');
+    if (!sidebar || !toggle) return;
+
+    function openSidebar() {
+      sidebar.classList.add('is-open');
+      if (backdrop) backdrop.classList.add('is-open');
     }
-    return fetch(BASE + path, { headers: headers }).then(function (res) {
-      if (!res.ok) {
-        if (res.status === 401) {
-          clearSession();
-          if (!/login\.html$/.test(window.location.pathname)) {
-            window.location.href = 'login.html';
-          }
-        }
-        throw new Error('Request failed (' + res.status + ')');
-      }
-      return res.blob();
+    function closeSidebar() {
+      sidebar.classList.remove('is-open');
+      if (backdrop) backdrop.classList.remove('is-open');
+    }
+
+    U.on(toggle, 'click', function () {
+      sidebar.classList.contains('is-open') ? closeSidebar() : openSidebar();
+    });
+    U.on(backdrop, 'click', closeSidebar);
+    U.qsa('.sidebar__link').forEach(function (link) { U.on(link, 'click', closeSidebar); });
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Active nav highlighting                                           */
+  /* ---------------------------------------------------------------- */
+
+  function highlightActiveNav() {
+    var current = (location.pathname.split('/').pop() || 'index.html');
+    U.qsa('.sidebar__link').forEach(function (link) {
+      var href = (link.getAttribute('href') || '').split('#')[0];
+      if (href && href === current) link.classList.add('is-active');
     });
   }
 
-  /* -------------------------------- auth -------------------------------- */
+  /* ---------------------------------------------------------------- */
+  /* Profile menu                                                       */
+  /* ---------------------------------------------------------------- */
 
-  var auth = {
-    getSession: getSession,
+  function initProfileMenu() {
+    var chip = U.qs('.profile-chip');
+    if (!chip) return;
 
-    getUser: function () {
-      var session = getSession();
-      return session && session.user ? session.user : null;
-    },
+    var user = window.Api ? window.Api.auth.getUser() : { name: 'Jeevan Varma', email: 'jeevan@company.com' };
+    var nameEl = chip.querySelector('.profile-chip__name');
+    if (nameEl && user && user.name) nameEl.textContent = user.name.split(' ')[0];
 
-    // The UI only has a login form (no separate sign-up page), so we try
-    // to log in first and transparently register on a first-time email —
-    // mirrors the old mock's "any email/password works" demo behavior,
-    // but against the real backend/database this time.
-    login: function (email, password) {
-      if (!email || !password) {
-        return Promise.reject(new Error('Please enter your email and password.'));
-      }
+    chip.style.cursor = 'pointer';
+    chip.style.position = 'relative';
 
-      function doLogin() {
-        return request('/auth/login', { method: 'POST', body: { email: email, password: password } });
-      }
-
-      return doLogin()
-        .catch(function (err) {
-          var looksLikeNoAccount = /incorrect email or password/i.test(err.message || '');
-          if (!looksLikeNoAccount) throw err;
-          var name = email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
-          return request('/auth/register', {
-            method: 'POST',
-            body: { name: name || 'New User', email: email, password: password }
-          }).then(doLogin);
-        })
-        .then(function (data) {
-          var session = { token: data.token, user: data.user };
-          saveSession(session);
-          return session;
-        });
-    },
-
-    logout: function () {
-      request('/auth/logout', { method: 'POST' }).catch(function () {});
-      clearSession();
+    var menu = null;
+    function closeMenu() {
+      if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
+      menu = null;
+      document.removeEventListener('click', onDocClick);
     }
-  };
-
-  /* ------------------------------- audits ------------------------------- */
-
-  function mapAuditToRecent(a) {
-    return {
-      id: a.id,
-      url: U.hostnameOf(a.url),
-      score: a.overall_score != null ? a.overall_score : 0,
-      completedAt: new Date(a.completed_at || a.created_at).getTime(),
-      label: a.label,
-      status: a.status
-    };
-  }
-
-  var audits = {
-    // Starts a real audit on the backend, then polls /audits/{id}/progress
-    // until it finishes, calling onProgress(progress) on each step change —
-    // same { stepId, status, percent, elapsedLabel } shape audit.js expects.
-    run: function (config, onProgress) {
-      if (!config || !config.url || !window.Validation.isValidUrl(config.url)) {
-        return Promise.reject(new Error('Please provide a valid website URL.'));
-      }
-
-      return request('/audits/', {
-        method: 'POST',
-        body: {
-          url: config.url,
-          depth: config.depth === 'full' ? 'full' : 'homepage',
-          max_pages: config.maxPages || 1,
-          modules: config.modules && config.modules.length ? config.modules : CFG.MODULES
-        }
-      }).then(function (created) {
-        return pollProgress(created.id, onProgress);
-      });
-    },
-
-    getStats: function () {
-      return request('/dashboard/').then(function (d) {
-        var s = d.stats;
-        return {
-          totalAudits: s.total_audits,
-          seoIssues: s.seo_issues,
-          performanceScore: s.performance_score,
-          criticalIssues: s.critical_issues,
-          overall: s.overall,
-          breakdown: {
-            seo: s.breakdown.seo,
-            performance: s.breakdown.performance,
-            accessibility: s.breakdown.accessibility,
-            security: s.breakdown.security
-          }
-        };
-      });
-    },
-
-    getRecent: function () {
-      return request('/audits/recent').then(function (list) {
-        return (list || []).map(mapAuditToRecent);
-      });
-    },
-
-    // Consent-module detail for one audit (banner presence, cookie/tracker
-    // findings, and the banner screenshot) — 404s if the audit didn't run
-    // with the "consent" module enabled.
-    getConsent: function (auditId) {
-      return request('/audits/' + auditId + '/consent').then(function (c) {
-        return {
-          hasCookieBanner: c.has_cookie_banner,
-          bannerBlocksScriptsPreConsent: c.banner_blocks_scripts_pre_consent,
-          gdprCompliant: c.gdpr_compliant,
-          ccpaCompliant: c.ccpa_compliant,
-          consentScore: c.consent_score,
-          bannerScreenshotUrl: c.banner_screenshot_url ? (CFG.API_ORIGIN + c.banner_screenshot_url) : null
-        };
-      });
-    },
-
-    // Analytics/tag-detection detail for one audit (GA4/GTM/Meta Pixel/etc.
-    // detected, dataLayer presence, event counts) — 404s if the audit
-    // didn't run with the "analytics" module enabled.
-    getAnalytics: function (auditId) {
-      return request('/audits/' + auditId + '/analytics').then(function (a) {
-        return {
-          trackersDetected: a.trackers_detected || [],
-          tagManagerDetected: a.tag_manager_detected,
-          gtmContainerId: a.gtm_container_id,
-          gaMeasurementId: a.ga_measurement_id,
-          dataLayerPresent: a.data_layer_present,
-          pageviewEventsFound: a.pageview_events_found,
-          customEventsFound: a.custom_events_found,
-          analyticsScore: a.analytics_score
-        };
-      });
+    function onDocClick(e) {
+      if (!chip.contains(e.target)) closeMenu();
     }
-  };
+    function openMenu() {
+      menu = document.createElement('div');
+      menu.style.cssText = 'position:absolute; right:0; top:calc(100% + 8px); background:var(--surface); ' +
+        'border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); ' +
+        'min-width:180px; padding:6px; z-index:60; font-size:var(--fs-sm);';
+      menu.innerHTML =
+        '<div style="padding:8px 10px; color:var(--text-tertiary); font-size:12px;">' + U.escapeHtml((user && user.email) || '') + '</div>' +
+        '<a href="settings.html" style="display:block; padding:8px 10px; border-radius:var(--radius-sm); color:var(--text-primary);">Settings</a>' +
+        '<a href="#" id="profileMenuLogout" style="display:block; padding:8px 10px; border-radius:var(--radius-sm); color:var(--color-error);">Log out</a>';
+      chip.appendChild(menu);
+      U.qsa('a', menu).forEach(function (a) {
+        U.on(a, 'mouseenter', function () { a.style.background = 'var(--surface-sunken)'; });
+        U.on(a, 'mouseleave', function () { a.style.background = ''; });
+      });
+      U.on(menu.querySelector('#profileMenuLogout'), 'click', function (e) {
+        e.preventDefault();
+        if (window.Api) window.Api.auth.logout();
+        window.location.href = 'login.html';
+      });
+      setTimeout(function () { document.addEventListener('click', onDocClick); }, 0);
+    }
 
-  function pollProgress(auditId, onProgress) {
-    return new Promise(function (resolve, reject) {
-      var lastStep = null;
-      var lastPercent = 0;
-
-      function tick() {
-        request('/audits/' + auditId + '/progress')
-          .then(function (p) {
-            if (p.current_step && p.current_step !== lastStep) {
-              if (lastStep && onProgress) {
-                onProgress({ stepId: lastStep, status: 'pass', percent: lastPercent, elapsedLabel: 'done' });
-              }
-              lastStep = p.current_step;
-              if (onProgress) onProgress({ stepId: lastStep, status: 'running', percent: p.percent });
-            }
-            lastPercent = p.percent;
-
-            if (p.status === 'completed') {
-              if (lastStep && onProgress) {
-                onProgress({ stepId: lastStep, status: 'pass', percent: 100, elapsedLabel: 'done' });
-              }
-              U.storageSetJSON('auditpulse:lastAuditId', auditId);
-              resolve({ overall: p.overall_score, id: auditId });
-              return;
-            }
-            if (p.status === 'failed') {
-              reject(new Error('Something went wrong while auditing this site.'));
-              return;
-            }
-            setTimeout(tick, 700);
-          })
-          .catch(reject);
-      }
-
-      tick();
+    U.on(chip, 'click', function () {
+      menu ? closeMenu() : openMenu();
     });
   }
 
-  /* ------------------------------- reports ------------------------------- */
-  // Backs report.html: the real score grid / findings / AI recommendations
-  // for one completed audit, plus the share and PDF-download actions.
+  /* ---------------------------------------------------------------- */
+  /* Notification bell                                                  */
+  /* ---------------------------------------------------------------- */
 
-  function mapReport(d) {
-    return {
-      auditId: d.audit_id,
-      url: d.url,
-      overall: d.overall,
-      generatedAt: d.generated_at,
-      shareUrl: d.share_url,
-      scoreGrid: (d.score_grid || []).map(function (c) {
-        return { module: c.module, label: c.label, score: c.score, targetSection: c.target_section };
-      }),
-      findings: (d.findings || []).map(function (f) {
-        return { module: f.module, severity: f.severity, title: f.title, description: f.description };
-      }),
-      // Only present via reports.getFull() (GET /reports/{id}/export.json) —
-      // undefined when the plain reports.get() call was used instead.
-      priorities: d.priorities ? d.priorities.map(function (p) {
-        return { rank: p.rank, module: p.module, severity: p.severity, title: p.title, description: p.description, effort: p.effort };
-      }) : undefined
-    };
+  function initNotificationBell() {
+    var bell = U.qs('.topbar__actions .icon-btn[aria-label="Notifications"]');
+    if (!bell) return;
+
+    var mockNotifications = [
+      { title: 'Audit completed', desc: 'example.com scored 92/100', time: '2 min ago' },
+      { title: 'Critical issue found', desc: 'shopcraft.io — 3 broken links', time: '1 hour ago' },
+      { title: 'Weekly digest ready', desc: '4 sites summarized', time: 'Yesterday' }
+    ];
+
+    bell.style.position = 'relative';
+    var panel = null;
+
+    function closePanel() {
+      if (panel && panel.parentNode) panel.parentNode.removeChild(panel);
+      panel = null;
+      document.removeEventListener('click', onDocClick);
+    }
+    function onDocClick(e) {
+      if (!bell.contains(e.target)) closePanel();
+    }
+    function openPanel() {
+      var dot = bell.querySelector('.dot');
+      if (dot) dot.style.display = 'none';
+
+      panel = document.createElement('div');
+      panel.style.cssText = 'position:absolute; right:0; top:calc(100% + 8px); background:var(--surface); ' +
+        'border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); ' +
+        'width:280px; padding:10px; z-index:60;';
+      var itemsHtml = mockNotifications.map(function (n) {
+        return '<div style="padding:8px 10px; border-radius:var(--radius-sm);">' +
+          '<div style="font-weight:600; font-size:var(--fs-sm);">' + U.escapeHtml(n.title) + '</div>' +
+          '<div style="font-size:12px; color:var(--text-tertiary); margin-top:2px;">' + U.escapeHtml(n.desc) + ' · ' + n.time + '</div>' +
+          '</div>';
+      }).join('');
+      panel.innerHTML = '<div style="font-weight:700; font-size:var(--fs-sm); padding:6px 10px 10px;">Notifications</div>' + itemsHtml;
+      bell.appendChild(panel);
+      setTimeout(function () { document.addEventListener('click', onDocClick); }, 0);
+    }
+
+    U.on(bell, 'click', function (e) {
+      e.stopPropagation();
+      panel ? closePanel() : openPanel();
+    });
   }
 
-  var reports = {
-    // Lightweight report view (score grid + findings) for report.html's
-    // main render.
-    get: function (auditId) {
-      return request('/reports/' + auditId).then(mapReport);
-    },
+  /* ---------------------------------------------------------------- */
+  /* Settings page (no dedicated settings.js — wired here)              */
+  /* ---------------------------------------------------------------- */
 
-    // Full, AI-enriched export (adds prioritized recommendations) — same
-    // data report.html's "AI Recommendations" card needs, at the cost of
-    // a slower first call (cached server-side after that).
-    getFull: function (auditId) {
-      return request('/reports/' + auditId + '/export.json').then(mapReport);
-    },
+  function initSettingsPage() {
+    var saveBtn = document.getElementById('saveSettingsBtn');
+    if (!saveBtn || !window.Api) return; // not on settings.html
 
-    share: function (auditId) {
-      return request('/reports/' + auditId + '/share', { method: 'POST' }).then(function (d) {
-        return d.share_url;
-      });
-    },
+    var cancelBtn = document.getElementById('cancelSettingsBtn');
+    var copyKeyBtn = document.getElementById('copyApiKeyBtn');
+    var revokeKeyBtn = document.getElementById('revokeApiKeyBtn');
+    var generateKeyBtn = document.getElementById('generateApiKeyBtn');
+    var exportBtn = document.getElementById('exportDataBtn');
+    var swatches = U.qsa('.theme-swatch');
+    var apiKeyDisplay = document.getElementById('apiKeyDisplay');
 
-    // Fetches the real PDF export and returns it as a Blob for
-    // Utils.downloadBlob() to save — see downloadPdfBtn in report.js.
-    exportPdfBlob: function (auditId) {
-      return requestBlob('/reports/' + auditId + '/export');
+    var selectedTheme = U.storageGet(CFG.STORAGE_KEYS.THEME, 'light');
+
+    // Load persisted settings into the form
+    window.Api.settings.get().then(function (s) {
+      setVal('settingName', s.name);
+      setVal('settingEmail', s.email);
+      setVal('settingCompany', s.company);
+      setVal('settingAiProvider', s.aiProvider);
+      setChecked('notifyAuditCompleted', s.notifyAuditCompleted);
+      setChecked('notifyCriticalIssue', s.notifyCriticalIssue);
+      setChecked('notifyWeeklySummary', s.notifyWeeklySummary);
+      setVal('settingLanguage', s.language);
+      setVal('scheduleFrequency', s.scheduleFrequency);
+      setVal('scheduleTime', s.scheduleTime);
+    }).catch(function (err) {
+      window.Notifications.error('Couldn\'t load settings', err.message || 'Please refresh and try again.');
+    });
+
+    function setVal(id, value) {
+      var el = document.getElementById(id);
+      if (el && value != null) el.value = value;
     }
-  };
-
-  /* --------------------------------- ai ---------------------------------- */
-  // The AI-assistant chat panel on report.html — POST /ai/{id}/chat, with
-  // the running Q&A history sent back each turn so follow-up questions
-  // stay in context (the backend is stateless between requests).
-
-  var ai = {
-    chat: function (auditId, question, history) {
-      return request('/ai/' + auditId + '/chat', {
-        method: 'POST',
-        body: { question: question, history: history || [] }
-      }).then(function (d) {
-        return d.answer;
-      });
+    function setChecked(id, value) {
+      var el = document.getElementById(id);
+      if (el) el.checked = !!value;
     }
-  };
-
-  /* ------------------------------- history -------------------------------- */
-  // Real account-activity feed (audits started/completed, settings changes,
-  // logins, scheduled runs, ...) — GET /history/activity. Backs the
-  // notification bell in app.js; replaces the old hardcoded mock list.
-
-  var history = {
-    getActivity: function (pageSize) {
-      return request('/history/activity?page_size=' + (pageSize || 10)).then(function (d) {
-        return (d.items || []).map(function (item) {
-          return {
-            id: item.id,
-            eventType: item.event_type,
-            description: item.description,
-            auditId: item.audit_id,
-            createdAt: item.created_at
-          };
-        });
-      });
+    function getVal(id) {
+      var el = document.getElementById(id);
+      return el ? el.value : undefined;
     }
-  };
+    function getChecked(id) {
+      var el = document.getElementById(id);
+      return el ? el.checked : undefined;
+    }
 
-  /* ------------------------------ settings ------------------------------ */
+    swatches.forEach(function (swatch) {
+      U.on(swatch, 'click', function () {
+        selectedTheme = swatch.dataset.themeChoice;
+        swatches.forEach(function (s) { s.classList.toggle('is-active', s === swatch); });
+        U.storageSet(CFG.STORAGE_KEYS.THEME, selectedTheme);
+        applyTheme(selectedTheme);
+      });
+    });
 
-  function mapSettingsOut(s) {
-    return {
-      name: s.name,
-      email: s.email,
-      company: s.company,
-      aiProvider: s.ai_provider,
-      notifyAuditCompleted: s.notify_audit_completed,
-      notifyCriticalIssue: s.notify_critical_issue,
-      notifyWeeklySummary: s.notify_weekly_summary,
-      theme: s.theme,
-      language: s.language,
-      scheduleFrequency: s.schedule_frequency,
-      scheduleTime: s.schedule_time,
-      apiKey: s.api_key
-    };
-  }
+    U.on(copyKeyBtn, 'click', function () {
+      window.Api.settings.get().then(function (s) {
+        return U.copyToClipboard(s.apiKey);
+      }).then(function () {
+        window.Notifications.success('Copied', 'API key copied to clipboard.');
+      }).catch(function (err) {
+        window.Notifications.error('Couldn\'t copy key', err.message || 'Please try again.');
+      });
+    });
 
-  var settings = {
-    get: function () {
-      return request('/settings/').then(mapSettingsOut);
-    },
+    U.on(revokeKeyBtn, 'click', function () {
+      window.Modal.confirm({
+        title: 'Revoke production key?',
+        body: 'Any integration using this key will stop working immediately. This can\'t be undone.',
+        confirmLabel: 'Revoke key',
+        dangerous: true,
+        onConfirm: function () {
+          window.Api.settings.regenerateApiKey().then(function (key) {
+            if (apiKeyDisplay) apiKeyDisplay.textContent = maskKey(key);
+            window.Notifications.warning('Key revoked', 'A new production key has been generated.');
+          }).catch(function (err) {
+            window.Notifications.error('Couldn\'t revoke key', err.message || 'Please try again.');
+          });
+        }
+      });
+    });
 
-    save: function (patch) {
-      patch = patch || {};
-      var body = {
-        name: patch.name,
-        email: patch.email,
-        company: patch.company,
-        ai_provider: patch.aiProvider,
-        notify_audit_completed: patch.notifyAuditCompleted,
-        notify_critical_issue: patch.notifyCriticalIssue,
-        notify_weekly_summary: patch.notifyWeeklySummary,
-        theme: patch.theme,
-        language: patch.language,
-        schedule_frequency: patch.scheduleFrequency,
-        schedule_time: patch.scheduleTime
+    U.on(generateKeyBtn, 'click', function () {
+      window.Loader.setButtonLoading(generateKeyBtn, true, 'Generating…');
+      window.Api.settings.regenerateApiKey().then(function (key) {
+        if (apiKeyDisplay) apiKeyDisplay.textContent = maskKey(key);
+        window.Notifications.success('New key generated', 'Copy it now — you won\'t see the full key again.');
+      }).catch(function (err) {
+        window.Notifications.error('Couldn\'t generate key', err.message || 'Please try again.');
+      }).finally(function () {
+        window.Loader.setButtonLoading(generateKeyBtn, false);
+      });
+    });
+
+    function maskKey(key) {
+      return key.slice(0, 8) + '••••••••••••' + key.slice(-4);
+    }
+
+    U.on(exportBtn, 'click', function () {
+      window.Api.settings.exportJson().then(function (data) {
+        U.downloadTextFile('auditpulse-settings.json', JSON.stringify(data, null, 2), 'application/json');
+        window.Notifications.info('Exported', 'Your workspace settings were downloaded as JSON.');
+      }).catch(function (err) {
+        window.Notifications.error('Export failed', err.message || 'Please try again.');
+      });
+    });
+
+    U.on(cancelBtn, 'click', function (e) {
+      e.preventDefault();
+      window.location.reload();
+    });
+
+    U.on(saveBtn, 'click', function () {
+      var patch = {
+        name: getVal('settingName'),
+        email: getVal('settingEmail'),
+        company: getVal('settingCompany'),
+        aiProvider: getVal('settingAiProvider'),
+        notifyAuditCompleted: getChecked('notifyAuditCompleted'),
+        notifyCriticalIssue: getChecked('notifyCriticalIssue'),
+        notifyWeeklySummary: getChecked('notifyWeeklySummary'),
+        theme: selectedTheme,
+        language: getVal('settingLanguage'),
+        scheduleFrequency: getVal('scheduleFrequency'),
+        scheduleTime: getVal('scheduleTime')
       };
-      Object.keys(body).forEach(function (k) { if (body[k] === undefined) delete body[k]; });
-      return request('/settings/', { method: 'PATCH', body: body }).then(mapSettingsOut);
-    },
 
-    regenerateApiKey: function () {
-      return request('/settings/api-key/regenerate', { method: 'POST' }).then(function (d) { return d.api_key; });
-    },
+      if (patch.email && !window.Validation.isValidEmail(patch.email)) {
+        window.Notifications.error('Invalid email', 'Please enter a valid profile email address.');
+        return;
+      }
 
-    exportJson: function () {
-      return request('/settings/export').then(function (d) {
-        return {
-          exportedAt: d.exported_at,
-          settings: mapSettingsOut(d.settings),
-          audits: (d.audits || []).map(mapAuditToRecent)
-        };
+      window.Loader.setButtonLoading(saveBtn, true, 'Saving…');
+      window.Api.settings.save(patch).then(function () {
+        window.Notifications.success('Settings saved', 'Your workspace preferences were updated.');
+      }).catch(function (err) {
+        window.Notifications.error('Couldn\'t save settings', err.message || 'Please try again.');
+      }).finally(function () {
+        window.Loader.setButtonLoading(saveBtn, false);
       });
-    }
-  };
+    });
+  }
 
-  return { auth: auth, audits: audits, settings: settings, reports: reports, ai: ai, history: history };
+  // Exposed so settings.js-equivalent code above can call the same theme logic
+  window.__applyTheme = applyTheme;
 })();
