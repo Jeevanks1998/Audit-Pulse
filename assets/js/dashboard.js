@@ -13,19 +13,22 @@
     var statPerf = document.getElementById('statPerformance');
     var statCritical = document.getElementById('statCriticalIssues');
 
-    var greetingEl = document.getElementById('dashboardGreeting');
-    if (greetingEl) {
-      var hour = new Date().getHours();
-      var timeGreeting = hour < 12 ? 'Good morning' : (hour < 18 ? 'Good afternoon' : 'Good evening');
-      var user = window.Api ? window.Api.auth.getUser() : null;
-      var firstName = user && user.name ? user.name.split(' ')[0] : null;
-      greetingEl.textContent = firstName ? (timeGreeting + ', ' + firstName) : timeGreeting;
-    }
-
     var healthRingCircle = document.getElementById('healthRingCircle');
     var healthRing = document.getElementById('healthRing');
     var healthScoreValue = document.getElementById('healthScoreValue');
     var recentList = document.getElementById('recentAuditsList');
+
+    // Real time-of-day + real logged-in user's first name — replaces the
+    // old hardcoded "Good morning, Jeevan" that showed regardless of the
+    // time or who was actually signed in.
+    var greetingEl = document.getElementById('greetingName');
+    if (greetingEl) {
+      var hour = new Date().getHours();
+      var timeGreeting = hour < 12 ? 'Good morning' : (hour < 18 ? 'Good afternoon' : 'Good evening');
+      var user = window.Api.auth.getUser();
+      var firstName = user && user.name ? user.name.split(' ')[0] : null;
+      greetingEl.textContent = firstName ? (timeGreeting + ', ' + firstName) : timeGreeting;
+    }
 
     [statTotal, statSeo, statPerf, statCritical].forEach(function (el) { window.Loader.setSkeleton(el, true); });
     window.Loader.setSkeleton(healthScoreValue, true);
