@@ -1,359 +1,49 @@
 /* ==========================================================================
-   api.js — thin wrapper around the FastAPI backend (see /backend).
-   Exposed as window.Api. Every other page script (auth.js, dashboard.js,
-   history.js, audit.js, report.js, app.js's settings-page logic) calls
-   through here rather than touching fetch()/localStorage directly.
-
-   Handles: bearer-token session storage, JSON request/response plumbing,
-   error normalization (so callers can just do `.catch(err => err.message)`),
-   and mapping the backend's snake_case field names to the camelCase shape
-   the rest of the frontend expects.
+   auth.js — login.html page logic.
+   Internal login: email only, no password. Entering a valid email and
+   submitting signs the person straight in.
    ========================================================================== */
 
-window.Api = (function () {
-  var CFG = window.APP_CONFIG;
+(function () {
   var U = window.Utils;
+  var V = window.Validation;
 
-  /* ---------------------------------------------------------------- */
-  /* Session storage                                                    */
-  /* ---------------------------------------------------------------- */
+  document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('loginForm');
+    if (!form) return; // not on login.html
 
-  function getSession() {
-    return U.storageGetJSON(CFG.STORAGE_KEYS.SESSION, null);
-  }
+    var emailInput = document.getElementById('email');
+    var emailError = document.getElementById('emailError');
+    var submitBtn = document.getElementById('loginSubmitBtn');
 
-  function setSession(session) {
-    U.storageSetJSON(CFG.STORAGE_KEYS.SESSION, session);
-  }
+    // If already "logged in", skip straight to the dashboard.
+    if (window.Api && window.Api.auth.getSession()) {
+      if (location.search.indexOf('stay') === -1) {
+        window.location.href = 'dashboard.html';
+        return;
+      }
+    }
 
-  function clearSession() {
-    U.storageRemove(CFG.STORAGE_KEYS.SESSION);
-  }
+    U.on(emailInput, 'blur', function () { V.validateEmailField(emailInput, emailError); });
+    U.on(emailInput, 'input', function () { V.clearFieldState(emailInput, emailError); });
 
-  function getToken() {
-    var s = getSession();
-    return s ? s.token : null;
-  }
+    U.on(form, 'submit', function (e) {
+      e.preventDefault();
 
-  function getUser() {
-    var s = getSession();
-    return s ? s.user : null;
-  }
+      var emailOk = V.validateEmailField(emailInput, emailError);
+      if (!emailOk) return;
 
-  /* ---------------------------------------------------------------- */
-  /* Core request helper                                                */
-  /* ---------------------------------------------------------------- */
+      window.Loader.setButtonLoading(submitBtn, true, 'Signing in…');
 
-  function request(path, options) {
-    options = options || {};
-    var headers = { 'Content-Type': 'application/json' };
-    var token = getToken();
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    Object.assign(headers, options.headers || {});
-
-    return fetch(CFG.API_BASE_URL + path, {
-      method: options.method || 'GET',
-      headers: headers,
-      body: options.body != null ? JSON.stringify(options.body) : undefined
-    }).then(function (res) {
-      if (res.status === 204) return null;
-
-      var isJson = (res.headers.get('content-type') || '').indexOf('application/json') !== -1;
-
-      return (isJson ? res.json() : res.text()).then(function (data) {
-        if (!res.ok) {
-          var message = (data && data.detail) ? data.detail : (typeof data === 'string' && data) || 'Something went wrong. Please try again.';
-          if (res.status === 401) clearSession();
-          throw new Error(message);
-        }
-        return data;
-      });
+      window.Api.auth.loginWithEmail(emailInput.value.trim())
+        .then(function () {
+          window.Notifications.success('Welcome', 'Redirecting to your dashboard…');
+          setTimeout(function () { window.location.href = 'dashboard.html'; }, 500);
+        })
+        .catch(function (err) {
+          window.Loader.setButtonLoading(submitBtn, false);
+          window.Notifications.error('Sign in failed', err.message || 'Please check your email and try again.');
+        });
     });
-  }
-
-  // For endpoints returning a binary body (PDF export) rather than JSON.
-  function requestBlob(path) {
-    var headers = {};
-    var token = getToken();
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-
-    return fetch(CFG.API_BASE_URL + path, { headers: headers }).then(function (res) {
-      if (!res.ok) throw new Error('Could not generate the PDF export.');
-      return res.blob();
-    });
-  }
-
-  /* ---------------------------------------------------------------- */
-  /* Field mapping — backend (snake_case) -> frontend (camelCase)      */
-  /* ---------------------------------------------------------------- */
-
-  function mapAudit(a) {
-    if (!a) return a;
-    return {
-      id: a.id,
-      url: a.url,
-      label: a.label,
-      depth: a.depth,
-      status: a.status,
-      currentStep: a.current_step,
-      percent: a.percent,
-      score: a.overall_score,
-      breakdown: a.breakdown,
-      createdAt: a.created_at,
-      completedAt: a.completed_at
-    };
-  }
-
-  function mapStats(s) {
-    return {
-      totalAudits: s.total_audits,
-      seoIssues: s.seo_issues,
-      performanceScore: s.performance_score,
-      criticalIssues: s.critical_issues,
-      overall: s.overall,
-      breakdown: s.breakdown
-    };
-  }
-
-  function mapConsent(c) {
-    if (!c) return c;
-    return {
-      hasCookieBanner: c.has_cookie_banner,
-      bannerBlocksScriptsPreConsent: c.banner_blocks_scripts_pre_consent,
-      gdprCompliant: c.gdpr_compliant,
-      ccpaCompliant: c.ccpa_compliant,
-      privacyPolicyFound: c.privacy_policy_found,
-      privacyPolicyUrl: c.privacy_policy_url,
-      cookiesDetected: c.cookies_detected,
-      thirdPartyTrackers: c.third_party_trackers,
-      consentScore: c.consent_score,
-      bannerScreenshotUrl: c.banner_screenshot_url
-    };
-  }
-
-  function mapScoreCell(cell) {
-    return { module: cell.module, label: cell.label, score: cell.score, targetSection: cell.target_section };
-  }
-
-  function mapReport(r) {
-    if (!r) return r;
-    return {
-      auditId: r.audit_id,
-      url: r.url,
-      overall: r.overall,
-      generatedAt: r.generated_at,
-      scoreGrid: (r.score_grid || []).map(mapScoreCell),
-      findings: r.findings || [],
-      shareUrl: r.share_url
-    };
-  }
-
-  function mapSettings(s) {
-    return {
-      name: s.name,
-      email: s.email,
-      company: s.company,
-      aiProvider: s.ai_provider,
-      notifyAuditCompleted: s.notify_audit_completed,
-      notifyCriticalIssue: s.notify_critical_issue,
-      notifyWeeklySummary: s.notify_weekly_summary,
-      theme: s.theme,
-      language: s.language,
-      scheduleFrequency: s.schedule_frequency,
-      scheduleTime: s.schedule_time,
-      apiKey: s.api_key
-    };
-  }
-
-  function settingsPatchToBackend(patch) {
-    var map = {
-      name: 'name', email: 'email', company: 'company', aiProvider: 'ai_provider',
-      notifyAuditCompleted: 'notify_audit_completed', notifyCriticalIssue: 'notify_critical_issue',
-      notifyWeeklySummary: 'notify_weekly_summary', theme: 'theme', language: 'language',
-      scheduleFrequency: 'schedule_frequency', scheduleTime: 'schedule_time'
-    };
-    var out = {};
-    Object.keys(patch).forEach(function (key) {
-      if (map[key] && patch[key] !== undefined) out[map[key]] = patch[key];
-    });
-    return out;
-  }
-
-  /* ---------------------------------------------------------------- */
-  /* auth                                                                */
-  /* ---------------------------------------------------------------- */
-
-  var auth = {
-    getSession: getSession,
-    getUser: getUser,
-    getToken: getToken,
-
-    // Internal, passwordless login: email only, no password required.
-    loginWithEmail: function (email) {
-      return request('/auth/login-email', { method: 'POST', body: { email: email } })
-        .then(function (data) {
-          setSession({ token: data.token, user: data.user });
-          return data.user;
-        });
-    },
-
-    login: function (email, password) {
-      return request('/auth/login', { method: 'POST', body: { email: email, password: password } })
-        .then(function (data) {
-          setSession({ token: data.token, user: data.user });
-          return data.user;
-        });
-    },
-
-    register: function (name, email, password, company) {
-      return request('/auth/register', { method: 'POST', body: { name: name, email: email, password: password, company: company } })
-        .then(function (data) {
-          setSession({ token: data.token, user: data.user });
-          return data.user;
-        });
-    },
-
-    logout: function () {
-      var done = getToken() ? request('/auth/logout', { method: 'POST' }).catch(function () {}) : Promise.resolve();
-      return done.then(function () { clearSession(); });
-    }
-  };
-
-  /* ---------------------------------------------------------------- */
-  /* audits                                                              */
-  /* ---------------------------------------------------------------- */
-
-  var POLL_INTERVAL_MS = 900;
-
-  var audits = {
-    getStats: function () {
-      return request('/audits/stats').then(mapStats);
-    },
-
-    getRecent: function (limit) {
-      return request('/audits/recent' + (limit ? ('?limit=' + encodeURIComponent(limit)) : ''))
-        .then(function (list) { return list.map(mapAudit); });
-    },
-
-    getConsent: function (auditId) {
-      return request('/audits/' + encodeURIComponent(auditId) + '/consent').then(mapConsent);
-    },
-
-    get: function (auditId) {
-      return request('/audits/' + encodeURIComponent(auditId)).then(mapAudit);
-    },
-
-    // Starts an audit, polls its progress, and resolves with the finished
-    // report once the pipeline completes. Calls onProgress({percent,
-    // stepId, status, elapsedLabel}) after every poll.
-    run: function (config, onProgress) {
-      var body = {
-        url: config.url,
-        depth: config.depth,
-        max_pages: config.maxPages,
-        modules: config.modules
-      };
-
-      return request('/audits/', { method: 'POST', body: body }).then(function (created) {
-        var auditId = created.id;
-        var startedAt = Date.now();
-
-        return new Promise(function (resolve, reject) {
-          function poll() {
-            request('/audits/' + auditId + '/progress').then(function (progress) {
-              var elapsedSec = Math.round((Date.now() - startedAt) / 1000);
-              if (onProgress) {
-                onProgress({
-                  percent: progress.percent,
-                  stepId: progress.current_step,
-                  status: progress.status === 'completed' || progress.status === 'failed' ? 'pass' : 'running',
-                  elapsedLabel: elapsedSec + 's'
-                });
-              }
-
-              if (progress.status === 'completed') {
-                request('/reports/' + auditId).then(mapReport).then(function (report) {
-                  resolve({ id: auditId, overall: report.overall, url: report.url });
-                }).catch(reject);
-              } else if (progress.status === 'failed') {
-                reject(new Error('The audit failed while running. Please try again.'));
-              } else {
-                setTimeout(poll, POLL_INTERVAL_MS);
-              }
-            }).catch(reject);
-          }
-          poll();
-        });
-      });
-    }
-  };
-
-  /* ---------------------------------------------------------------- */
-  /* reports                                                             */
-  /* ---------------------------------------------------------------- */
-
-  var reports = {
-    get: function (auditId) {
-      return request('/reports/' + encodeURIComponent(auditId)).then(mapReport);
-    },
-
-    // AI-enriched report: base report + prioritized recommendations.
-    getFull: function (auditId) {
-      return Promise.all([
-        request('/reports/' + encodeURIComponent(auditId)).then(mapReport),
-        request('/ai/' + encodeURIComponent(auditId) + '/priorities')
-      ]).then(function (results) {
-        var report = results[0];
-        var priorities = (results[1] && results[1].priorities) || [];
-        report.priorities = priorities.map(function (p) {
-          return { title: p.title, description: p.description, severity: p.severity };
-        });
-        return report;
-      });
-    },
-
-    share: function (auditId) {
-      return request('/reports/' + encodeURIComponent(auditId) + '/share', { method: 'POST' })
-        .then(function (data) { return data.share_url; });
-    },
-
-    exportPdfBlob: function (auditId) {
-      return requestBlob('/reports/' + encodeURIComponent(auditId) + '/export');
-    }
-  };
-
-  /* ---------------------------------------------------------------- */
-  /* settings                                                            */
-  /* ---------------------------------------------------------------- */
-
-  var settings = {
-    get: function () {
-      return request('/settings/').then(mapSettings);
-    },
-
-    save: function (patch) {
-      return request('/settings/', { method: 'PATCH', body: settingsPatchToBackend(patch) }).then(mapSettings);
-    },
-
-    regenerateApiKey: function () {
-      return request('/settings/api-key/regenerate', { method: 'POST' }).then(function (data) { return data.api_key; });
-    },
-
-    exportJson: function () {
-      return request('/settings/export').then(function (data) {
-        return {
-          exportedAt: data.exported_at,
-          settings: mapSettings(data.settings),
-          audits: (data.audits || []).map(mapAudit)
-        };
-      });
-    }
-  };
-
-  return {
-    auth: auth,
-    audits: audits,
-    reports: reports,
-    settings: settings
-  };
+  });
 })();
