@@ -62,6 +62,15 @@
       })
       .catch(function () {
         window.Notifications.error('Couldn\'t load dashboard', 'Please refresh the page to try again.');
+        [statTotal, statSeo, statPerf, statCritical].forEach(function (el) {
+          window.Loader.setSkeleton(el, false);
+          if (el) el.textContent = '–';
+        });
+        window.Loader.setSkeleton(healthScoreValue, false);
+        if (healthScoreValue) healthScoreValue.textContent = '–';
+        if (recentList) {
+          recentList.innerHTML = '<div class="row-item-empty" style="padding: var(--sp-4); color: var(--text-tertiary); font-size: var(--fs-sm);">Couldn\'t load recent audits.</div>';
+        }
       });
 
     function setBar(fillId, valId, value) {
@@ -72,7 +81,11 @@
     }
 
     function renderRecentAudits(list) {
-      if (!recentList || !list || !list.length) return;
+      if (!recentList) return;
+      if (!list || !list.length) {
+        recentList.innerHTML = '<div class="row-item-empty" style="padding: var(--sp-4); color: var(--text-tertiary); font-size: var(--fs-sm);">No audits yet — run your first audit to see it here.</div>';
+        return;
+      }
       recentList.innerHTML = list.slice(0, 4).map(function (audit) {
         var band = U.scoreBand(audit.score);
         var chipClass = band === 'good' ? 'score-chip--good' : (band === 'mid' ? 'score-chip--mid' : 'score-chip--bad');
