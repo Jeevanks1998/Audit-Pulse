@@ -75,3 +75,17 @@
 .api-key-row__body { flex: 1; }
 .api-key-row__name { font-weight: 600; font-size: var(--fs-sm); }
 .api-key-row__key { font-family: var(--font-mono); font-size: 12px; color: var(--text-tertiary); }
+
+.schedule-row {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--surface-sunken); margin-bottom: var(--sp-3);
+}
+.schedule-row.is-inactive { opacity: 0.55; }
+.schedule-row__icon { color: var(--color-primary); flex-shrink: 0; }
+.schedule-row__icon svg { width: 18px; height: 18px; }
+.schedule-row__body { flex: 1; min-width: 0; }
+.schedule-row__url { font-weight: 600; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-row__meta { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+.schedule-row__actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
