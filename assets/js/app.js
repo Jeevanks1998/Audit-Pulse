@@ -17,6 +17,7 @@
     initSidebarLogout();
     highlightActiveNav();
     initSettingsPage();
+    initRecurringAuditsSection();
   });
 
   /* ---------------------------------------------------------------- */
@@ -338,6 +339,137 @@
         window.Notifications.success('Settings saved', 'Your workspace preferences were updated.');
       });
     });
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Recurring audits (settings.html "Recurring Audits" section)        */
+  /* ---------------------------------------------------------------- */
+
+  function initRecurringAuditsSection() {
+    var listEl = document.getElementById('scheduleList');
+    if (!listEl || !window.Api || !window.Api.scheduler) return; // not on settings.html
+
+    var emptyEl = document.getElementById('scheduleListEmpty');
+    var urlInput = document.getElementById('newScheduleUrl');
+    var urlError = document.getElementById('newScheduleUrlError');
+    var frequencyInput = document.getElementById('newScheduleFrequency');
+    var timeInput = document.getElementById('newScheduleTime');
+    var addBtn = document.getElementById('addScheduleBtn');
+
+    function iconSvg() {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+        'stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6M12 7v5l4 2"/></svg>';
+    }
+
+    function metaLine(s) {
+      var parts = [s.frequency, s.timeLabel];
+      if (s.isActive && s.nextRunAt) parts.push('Next: ' + U.formatRelativeTime(s.nextRunAt));
+      else if (!s.isActive) parts.push('Paused');
+      if (s.lastRunAt) parts.push('Last ran ' + U.formatRelativeTime(s.lastRunAt));
+      return parts.join(' · ');
+    }
+
+    function render(schedules) {
+      listEl.innerHTML = '';
+      if (!schedules.length) {
+        if (emptyEl) emptyEl.style.display = '';
+        return;
+      }
+      if (emptyEl) emptyEl.style.display = 'none';
+
+      schedules.forEach(function (s) {
+        var row = document.createElement('div');
+        row.className = 'schedule-row' + (s.isActive ? '' : ' is-inactive');
+        row.innerHTML =
+          '<span class="schedule-row__icon">' + iconSvg() + '</span>' +
+          '<div class="schedule-row__body">' +
+            '<div class="schedule-row__url">' + U.escapeHtml(s.url) + '</div>' +
+            '<div class="schedule-row__meta">' + U.escapeHtml(metaLine(s)) + '</div>' +
+          '</div>' +
+          '<div class="schedule-row__actions">' +
+            '<label class="toggle" title="' + (s.isActive ? 'Pause' : 'Resume') + '">' +
+              '<input type="checkbox" class="js-toggle-active"' + (s.isActive ? ' checked' : '') + '>' +
+              '<span class="toggle__track"></span>' +
+            '</label>' +
+            '<button type="button" class="btn btn--secondary btn--sm js-run-now">Run now</button>' +
+            '<button type="button" class="btn btn--danger btn--sm js-delete">Delete</button>' +
+          '</div>';
+
+        U.on(row.querySelector('.js-toggle-active'), 'change', function (e) {
+          window.Api.scheduler.update(s.id, { isActive: e.target.checked }).then(function () {
+            window.Notifications.info(e.target.checked ? 'Schedule resumed' : 'Schedule paused', s.url);
+            load();
+          }).catch(function (err) {
+            e.target.checked = !e.target.checked; // revert on failure
+            window.Notifications.error('Could not update schedule', err.message);
+          });
+        });
+
+        U.on(row.querySelector('.js-run-now'), 'click', function (e) {
+          var btn = e.currentTarget;
+          window.Loader.setButtonLoading(btn, true, 'Starting…');
+          window.Api.scheduler.runNow(s.id).then(function () {
+            window.Notifications.success('Audit started', s.url + ' is being re-scanned now.');
+            window.Loader.setButtonLoading(btn, false);
+            load();
+          }).catch(function (err) {
+            window.Loader.setButtonLoading(btn, false);
+            window.Notifications.error('Could not start audit', err.message);
+          });
+        });
+
+        U.on(row.querySelector('.js-delete'), 'click', function () {
+          window.Modal.confirm({
+            title: 'Delete this recurring audit?',
+            body: s.url + ' will no longer be scanned automatically. This can\'t be undone.',
+            confirmLabel: 'Delete',
+            dangerous: true,
+            onConfirm: function () {
+              window.Api.scheduler.remove(s.id).then(function () {
+                window.Notifications.warning('Schedule deleted', s.url);
+                load();
+              }).catch(function (err) {
+                window.Notifications.error('Could not delete schedule', err.message);
+              });
+            }
+          });
+        });
+
+        listEl.appendChild(row);
+      });
+    }
+
+    function load() {
+      window.Api.scheduler.list().then(render).catch(function (err) {
+        window.Notifications.error('Could not load recurring audits', err.message);
+      });
+    }
+
+    U.on(addBtn, 'click', function () {
+      var ok = window.Validation.validateUrlField(urlInput, urlError);
+      urlInput.classList.toggle('is-invalid', !ok);
+      if (!ok) return;
+
+      window.Loader.setButtonLoading(addBtn, true, 'Adding…');
+      window.Api.scheduler.create({
+        url: urlInput.value.trim(),
+        frequency: frequencyInput.value,
+        timeLabel: timeInput.value.trim() || 'Mondays, 6:00 AM'
+      }).then(function () {
+        window.Loader.setButtonLoading(addBtn, false);
+        window.Notifications.success('Recurring audit added', urlInput.value.trim());
+        urlInput.value = '';
+        window.Validation.clearFieldState(urlInput, urlError);
+        load();
+      }).catch(function (err) {
+        window.Loader.setButtonLoading(addBtn, false);
+        window.Notifications.error('Could not add recurring audit', err.message);
+      });
+    });
+
+    U.on(urlInput, 'input', function () { window.Validation.clearFieldState(urlInput, urlError); });
+
+    load();
   }
 
   // Exposed so settings.js-equivalent code above can call the same theme logic
