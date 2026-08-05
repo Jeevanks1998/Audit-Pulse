@@ -1,168 +1,359 @@
-"""
-api/auth.py
+/* ==========================================================================
+   api.js — thin wrapper around the FastAPI backend (see /backend).
+   Exposed as window.Api. Every other page script (auth.js, dashboard.js,
+   history.js, audit.js, report.js, app.js's settings-page logic) calls
+   through here rather than touching fetch()/localStorage directly.
 
-Authentication routes. The User model itself now lives in models/user.py
-(re-exported below so existing `from api.auth import User` imports across
-the codebase keep working); this module owns password/token handling and
-the register/login/logout/me endpoints, and logs a History event for
-each successful register/login.
+   Handles: bearer-token session storage, JSON request/response plumbing,
+   error normalization (so callers can just do `.catch(err => err.message)`),
+   and mapping the backend's snake_case field names to the camelCase shape
+   the rest of the frontend expects.
+   ========================================================================== */
 
-Also exposes `get_current_user`, the dependency every other router in
-api/ uses to identify the caller.
-"""
+window.Api = (function () {
+  var CFG = window.APP_CONFIG;
+  var U = window.Utils;
 
-import secrets
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+  /* ---------------------------------------------------------------- */
+  /* Session storage                                                    */
+  /* ---------------------------------------------------------------- */
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+  function getSession() {
+    return U.storageGetJSON(CFG.STORAGE_KEYS.SESSION, null);
+  }
 
-from config.database import get_db
-from config.logging import logger
-from config.settings import settings
-from models.history import HistoryEventType, log_event
-from models.user import User
-from schemas.user import TokenOut, UserLogin, UserOut, UserRegister
+  function setSession(session) {
+    U.storageSetJSON(CFG.STORAGE_KEYS.SESSION, session);
+  }
 
-router = APIRouter()
+  function clearSession() {
+    U.storageRemove(CFG.STORAGE_KEYS.SESSION);
+  }
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+  function getToken() {
+    var s = getSession();
+    return s ? s.token : null;
+  }
 
-# auto_error=False so an unauthenticated request reaches get_current_user and
-# gets a clean 401 with a WWW-Authenticate header, rather than FastAPI's
-# generic "Not authenticated" from the security dependency itself.
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_PREFIX}/auth/login", auto_error=False
-)
+  function getUser() {
+    var s = getSession();
+    return s ? s.user : null;
+  }
 
+  /* ---------------------------------------------------------------- */
+  /* Core request helper                                                */
+  /* ---------------------------------------------------------------- */
 
-# --------------------------------------------------------------------------
-# Password / token helpers
-# --------------------------------------------------------------------------
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+  function request(path, options) {
+    options = options || {};
+    var headers = { 'Content-Type': 'application/json' };
+    var token = getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    Object.assign(headers, options.headers || {});
 
+    return fetch(CFG.API_BASE_URL + path, {
+      method: options.method || 'GET',
+      headers: headers,
+      body: options.body != null ? JSON.stringify(options.body) : undefined
+    }).then(function (res) {
+      if (res.status === 204) return null;
 
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+      var isJson = (res.headers.get('content-type') || '').indexOf('application/json') !== -1;
 
+      return (isJson ? res.json() : res.text()).then(function (data) {
+        if (!res.ok) {
+          var message = (data && data.detail) ? data.detail : (typeof data === 'string' && data) || 'Something went wrong. Please try again.';
+          if (res.status === 401) clearSession();
+          throw new Error(message);
+        }
+        return data;
+      });
+    });
+  }
 
-def generate_api_key() -> str:
-    """ap_live_<20 hex chars> — matches the shape seeded in the frontend mock db."""
-    return "ap_live_" + secrets.token_hex(10)
+  // For endpoints returning a binary body (PDF export) rather than JSON.
+  function requestBlob(path) {
+    var headers = {};
+    var token = getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
 
+    return fetch(CFG.API_BASE_URL + path, { headers: headers }).then(function (res) {
+      if (!res.ok) throw new Error('Could not generate the PDF export.');
+      return res.blob();
+    });
+  }
 
-def create_access_token(subject: str, expires_minutes: Optional[int] = None) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=expires_minutes or settings.ACCESS_TOKEN_EXPIRE_MINUTES
-    )
-    payload = {"sub": subject, "exp": expire}
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+  /* ---------------------------------------------------------------- */
+  /* Field mapping — backend (snake_case) -> frontend (camelCase)      */
+  /* ---------------------------------------------------------------- */
 
+  function mapAudit(a) {
+    if (!a) return a;
+    return {
+      id: a.id,
+      url: a.url,
+      label: a.label,
+      depth: a.depth,
+      status: a.status,
+      currentStep: a.current_step,
+      percent: a.percent,
+      score: a.overall_score,
+      breakdown: a.breakdown,
+      createdAt: a.created_at,
+      completedAt: a.completed_at
+    };
+  }
 
-def decode_access_token(token: str) -> str:
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        subject: Optional[str] = payload.get("sub")
-        if subject is None:
-            raise JWTError("Missing subject")
-        return subject
-    except JWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
+  function mapStats(s) {
+    return {
+      totalAudits: s.total_audits,
+      seoIssues: s.seo_issues,
+      performanceScore: s.performance_score,
+      criticalIssues: s.critical_issues,
+      overall: s.overall,
+      breakdown: s.breakdown
+    };
+  }
 
+  function mapConsent(c) {
+    if (!c) return c;
+    return {
+      hasCookieBanner: c.has_cookie_banner,
+      bannerBlocksScriptsPreConsent: c.banner_blocks_scripts_pre_consent,
+      gdprCompliant: c.gdpr_compliant,
+      ccpaCompliant: c.ccpa_compliant,
+      privacyPolicyFound: c.privacy_policy_found,
+      privacyPolicyUrl: c.privacy_policy_url,
+      cookiesDetected: c.cookies_detected,
+      thirdPartyTrackers: c.third_party_trackers,
+      consentScore: c.consent_score,
+      bannerScreenshotUrl: c.banner_screenshot_url
+    };
+  }
 
-# --------------------------------------------------------------------------
-# Dependency: current user — imported by every other router in api/
-# --------------------------------------------------------------------------
-async def get_current_user(
-    token: Optional[str] = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+  function mapScoreCell(cell) {
+    return { module: cell.module, label: cell.label, score: cell.score, targetSection: cell.target_section };
+  }
 
-    user_id = decode_access_token(token)
-    result = await db.execute(select(User).where(User.id == int(user_id)))
-    user = result.scalar_one_or_none()
+  function mapReport(r) {
+    if (!r) return r;
+    return {
+      auditId: r.audit_id,
+      url: r.url,
+      overall: r.overall,
+      generatedAt: r.generated_at,
+      scoreGrid: (r.score_grid || []).map(mapScoreCell),
+      findings: r.findings || [],
+      shareUrl: r.share_url
+    };
+  }
 
-    if user is None or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive"
-        )
-    return user
+  function mapSettings(s) {
+    return {
+      name: s.name,
+      email: s.email,
+      company: s.company,
+      aiProvider: s.ai_provider,
+      notifyAuditCompleted: s.notify_audit_completed,
+      notifyCriticalIssue: s.notify_critical_issue,
+      notifyWeeklySummary: s.notify_weekly_summary,
+      theme: s.theme,
+      language: s.language,
+      scheduleFrequency: s.schedule_frequency,
+      scheduleTime: s.schedule_time,
+      apiKey: s.api_key
+    };
+  }
 
+  function settingsPatchToBackend(patch) {
+    var map = {
+      name: 'name', email: 'email', company: 'company', aiProvider: 'ai_provider',
+      notifyAuditCompleted: 'notify_audit_completed', notifyCriticalIssue: 'notify_critical_issue',
+      notifyWeeklySummary: 'notify_weekly_summary', theme: 'theme', language: 'language',
+      scheduleFrequency: 'schedule_frequency', scheduleTime: 'schedule_time'
+    };
+    var out = {};
+    Object.keys(patch).forEach(function (key) {
+      if (map[key] && patch[key] !== undefined) out[map[key]] = patch[key];
+    });
+    return out;
+  }
 
-# --------------------------------------------------------------------------
-# Routes
-# --------------------------------------------------------------------------
-@router.post("/register", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
-async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)):
-    existing = await db.execute(select(User).where(User.email == payload.email))
-    if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An account with this email already exists.",
-        )
+  /* ---------------------------------------------------------------- */
+  /* auth                                                                */
+  /* ---------------------------------------------------------------- */
 
-    user = User(
-        name=payload.name,
-        email=payload.email,
-        hashed_password=get_password_hash(payload.password),
-        company=payload.company or "",
-        api_key=generate_api_key(),
-    )
-    db.add(user)
-    await db.flush()
+  var auth = {
+    getSession: getSession,
+    getUser: getUser,
+    getToken: getToken,
 
-    await log_event(db, user.id, HistoryEventType.REGISTER, description=f"Account created ({user.email})")
-    await db.commit()
-    await db.refresh(user)
+    // Internal, passwordless login: email only, no password required.
+    loginWithEmail: function (email) {
+      return request('/auth/login-email', { method: 'POST', body: { email: email } })
+        .then(function (data) {
+          setSession({ token: data.token, user: data.user });
+          return data.user;
+        });
+    },
 
-    logger.info(f"New account registered: {user.email}")
-    token = create_access_token(subject=str(user.id))
-    return TokenOut(token=token, user=UserOut.model_validate(user))
+    login: function (email, password) {
+      return request('/auth/login', { method: 'POST', body: { email: email, password: password } })
+        .then(function (data) {
+          setSession({ token: data.token, user: data.user });
+          return data.user;
+        });
+    },
 
+    register: function (name, email, password, company) {
+      return request('/auth/register', { method: 'POST', body: { name: name, email: email, password: password, company: company } })
+        .then(function (data) {
+          setSession({ token: data.token, user: data.user });
+          return data.user;
+        });
+    },
 
-@router.post("/login", response_model=TokenOut)
-async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == payload.email))
-    user = result.scalar_one_or_none()
+    logout: function () {
+      var done = getToken() ? request('/auth/logout', { method: 'POST' }).catch(function () {}) : Promise.resolve();
+      return done.then(function () { clearSession(); });
+    }
+  };
 
-    if not user or not verify_password(payload.password, user.hashed_password):
-        # Deliberately generic — mirrors the frontend's "Incorrect email or
-        # password." message and avoids confirming which part was wrong.
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password.",
-        )
+  /* ---------------------------------------------------------------- */
+  /* audits                                                              */
+  /* ---------------------------------------------------------------- */
 
-    await log_event(db, user.id, HistoryEventType.LOGIN, description="Signed in")
-    await db.commit()
+  var POLL_INTERVAL_MS = 900;
 
-    token = create_access_token(subject=str(user.id))
-    return TokenOut(token=token, user=UserOut.model_validate(user))
+  var audits = {
+    getStats: function () {
+      return request('/audits/stats').then(mapStats);
+    },
 
+    getRecent: function (limit) {
+      return request('/audits/recent' + (limit ? ('?limit=' + encodeURIComponent(limit)) : ''))
+        .then(function (list) { return list.map(mapAudit); });
+    },
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(current_user: User = Depends(get_current_user)):
-    # Stateless JWTs: nothing to invalidate server-side. If you need
-    # server-side revocation later, blocklist the token's jti in Redis here.
-    return None
+    getConsent: function (auditId) {
+      return request('/audits/' + encodeURIComponent(auditId) + '/consent').then(mapConsent);
+    },
 
+    get: function (auditId) {
+      return request('/audits/' + encodeURIComponent(auditId)).then(mapAudit);
+    },
 
-@router.get("/me", response_model=UserOut)
-async def read_current_user(current_user: User = Depends(get_current_user)):
-    return current_user
+    // Starts an audit, polls its progress, and resolves with the finished
+    // report once the pipeline completes. Calls onProgress({percent,
+    // stepId, status, elapsedLabel}) after every poll.
+    run: function (config, onProgress) {
+      var body = {
+        url: config.url,
+        depth: config.depth,
+        max_pages: config.maxPages,
+        modules: config.modules
+      };
+
+      return request('/audits/', { method: 'POST', body: body }).then(function (created) {
+        var auditId = created.id;
+        var startedAt = Date.now();
+
+        return new Promise(function (resolve, reject) {
+          function poll() {
+            request('/audits/' + auditId + '/progress').then(function (progress) {
+              var elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+              if (onProgress) {
+                onProgress({
+                  percent: progress.percent,
+                  stepId: progress.current_step,
+                  status: progress.status === 'completed' || progress.status === 'failed' ? 'pass' : 'running',
+                  elapsedLabel: elapsedSec + 's'
+                });
+              }
+
+              if (progress.status === 'completed') {
+                request('/reports/' + auditId).then(mapReport).then(function (report) {
+                  resolve({ id: auditId, overall: report.overall, url: report.url });
+                }).catch(reject);
+              } else if (progress.status === 'failed') {
+                reject(new Error('The audit failed while running. Please try again.'));
+              } else {
+                setTimeout(poll, POLL_INTERVAL_MS);
+              }
+            }).catch(reject);
+          }
+          poll();
+        });
+      });
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /* reports                                                             */
+  /* ---------------------------------------------------------------- */
+
+  var reports = {
+    get: function (auditId) {
+      return request('/reports/' + encodeURIComponent(auditId)).then(mapReport);
+    },
+
+    // AI-enriched report: base report + prioritized recommendations.
+    getFull: function (auditId) {
+      return Promise.all([
+        request('/reports/' + encodeURIComponent(auditId)).then(mapReport),
+        request('/ai/' + encodeURIComponent(auditId) + '/priorities')
+      ]).then(function (results) {
+        var report = results[0];
+        var priorities = (results[1] && results[1].priorities) || [];
+        report.priorities = priorities.map(function (p) {
+          return { title: p.title, description: p.description, severity: p.severity };
+        });
+        return report;
+      });
+    },
+
+    share: function (auditId) {
+      return request('/reports/' + encodeURIComponent(auditId) + '/share', { method: 'POST' })
+        .then(function (data) { return data.share_url; });
+    },
+
+    exportPdfBlob: function (auditId) {
+      return requestBlob('/reports/' + encodeURIComponent(auditId) + '/export');
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /* settings                                                            */
+  /* ---------------------------------------------------------------- */
+
+  var settings = {
+    get: function () {
+      return request('/settings/').then(mapSettings);
+    },
+
+    save: function (patch) {
+      return request('/settings/', { method: 'PATCH', body: settingsPatchToBackend(patch) }).then(mapSettings);
+    },
+
+    regenerateApiKey: function () {
+      return request('/settings/api-key/regenerate', { method: 'POST' }).then(function (data) { return data.api_key; });
+    },
+
+    exportJson: function () {
+      return request('/settings/export').then(function (data) {
+        return {
+          exportedAt: data.exported_at,
+          settings: mapSettings(data.settings),
+          audits: (data.audits || []).map(mapAudit)
+        };
+      });
+    }
+  };
+
+  return {
+    auth: auth,
+    audits: audits,
+    reports: reports,
+    settings: settings
+  };
+})();
