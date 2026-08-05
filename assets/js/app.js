@@ -14,6 +14,7 @@
     initThemeToggle();
     initProfileMenu();
     initNotificationBell();
+    initSidebarLogout();
     highlightActiveNav();
     initSettingsPage();
   });
@@ -143,6 +144,21 @@
 
     U.on(chip, 'click', function () {
       menu ? closeMenu() : openMenu();
+    });
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Sidebar logout link                                                */
+  /* ---------------------------------------------------------------- */
+
+  function initSidebarLogout() {
+    var link = document.getElementById('sidebarLogout');
+    if (!link) return;
+
+    U.on(link, 'click', function (e) {
+      e.preventDefault();
+      if (window.Api) window.Api.auth.logout();
+      window.location.href = 'login.html';
     });
   }
 
