@@ -1,349 +1,359 @@
 /* ==========================================================================
-   app.js — runs on every page. Wires up the shared app-shell chrome
-   (sidebar, theme toggle, profile menu, notification bell) plus the
-   settings.html page, which has no dedicated script file of its own.
+   api.js — thin wrapper around the FastAPI backend (see /backend).
+   Exposed as window.Api. Every other page script (auth.js, dashboard.js,
+   history.js, audit.js, report.js, app.js's settings-page logic) calls
+   through here rather than touching fetch()/localStorage directly.
+
+   Handles: bearer-token session storage, JSON request/response plumbing,
+   error normalization (so callers can just do `.catch(err => err.message)`),
+   and mapping the backend's snake_case field names to the camelCase shape
+   the rest of the frontend expects.
    ========================================================================== */
 
-(function () {
-  var U = window.Utils;
+window.Api = (function () {
   var CFG = window.APP_CONFIG;
-
-  document.addEventListener('DOMContentLoaded', function () {
-    applyStoredTheme();
-    initSidebar();
-    initThemeToggle();
-    initProfileMenu();
-    initNotificationBell();
-    highlightActiveNav();
-    initSettingsPage();
-  });
+  var U = window.Utils;
 
   /* ---------------------------------------------------------------- */
-  /* Theme                                                              */
+  /* Session storage                                                    */
   /* ---------------------------------------------------------------- */
 
-  function systemPrefersDark() {
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  function getSession() {
+    return U.storageGetJSON(CFG.STORAGE_KEYS.SESSION, null);
   }
 
-  function applyTheme(mode) {
-    var resolved = mode === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : mode;
-    if (resolved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-    else document.documentElement.removeAttribute('data-theme');
-
-    U.qsa('.theme-toggle button').forEach(function (btn) {
-      var isDarkBtn = /dark/i.test(btn.getAttribute('aria-label') || '');
-      btn.classList.toggle('is-active', isDarkBtn === (resolved === 'dark'));
-    });
-
-    U.qsa('.theme-swatch').forEach(function (swatch) {
-      swatch.classList.toggle('is-active', swatch.dataset.themeChoice === mode);
-    });
+  function setSession(session) {
+    U.storageSetJSON(CFG.STORAGE_KEYS.SESSION, session);
   }
 
-  function applyStoredTheme() {
-    var mode = U.storageGet(CFG.STORAGE_KEYS.THEME, 'light');
-    applyTheme(mode);
+  function clearSession() {
+    U.storageRemove(CFG.STORAGE_KEYS.SESSION);
   }
 
-  function initThemeToggle() {
-    U.qsa('.theme-toggle button').forEach(function (btn) {
-      U.on(btn, 'click', function () {
-        var isDark = /dark/i.test(btn.getAttribute('aria-label') || '');
-        var mode = isDark ? 'dark' : 'light';
-        U.storageSet(CFG.STORAGE_KEYS.THEME, mode);
-        applyTheme(mode);
-      });
-    });
+  function getToken() {
+    var s = getSession();
+    return s ? s.token : null;
+  }
+
+  function getUser() {
+    var s = getSession();
+    return s ? s.user : null;
   }
 
   /* ---------------------------------------------------------------- */
-  /* Sidebar (mobile off-canvas)                                       */
+  /* Core request helper                                                */
   /* ---------------------------------------------------------------- */
 
-  function initSidebar() {
-    var sidebar = document.getElementById('sidebar');
-    var backdrop = document.getElementById('sidebarBackdrop');
-    var toggle = document.getElementById('menuToggle');
-    if (!sidebar || !toggle) return;
+  function request(path, options) {
+    options = options || {};
+    var headers = { 'Content-Type': 'application/json' };
+    var token = getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    Object.assign(headers, options.headers || {});
 
-    function openSidebar() {
-      sidebar.classList.add('is-open');
-      if (backdrop) backdrop.classList.add('is-open');
-    }
-    function closeSidebar() {
-      sidebar.classList.remove('is-open');
-      if (backdrop) backdrop.classList.remove('is-open');
-    }
+    return fetch(CFG.API_BASE_URL + path, {
+      method: options.method || 'GET',
+      headers: headers,
+      body: options.body != null ? JSON.stringify(options.body) : undefined
+    }).then(function (res) {
+      if (res.status === 204) return null;
 
-    U.on(toggle, 'click', function () {
-      sidebar.classList.contains('is-open') ? closeSidebar() : openSidebar();
-    });
-    U.on(backdrop, 'click', closeSidebar);
-    U.qsa('.sidebar__link').forEach(function (link) { U.on(link, 'click', closeSidebar); });
-  }
+      var isJson = (res.headers.get('content-type') || '').indexOf('application/json') !== -1;
 
-  /* ---------------------------------------------------------------- */
-  /* Active nav highlighting                                           */
-  /* ---------------------------------------------------------------- */
-
-  function highlightActiveNav() {
-    var current = (location.pathname.split('/').pop() || 'index.html');
-    U.qsa('.sidebar__link').forEach(function (link) {
-      var href = (link.getAttribute('href') || '').split('#')[0];
-      if (href && href === current) link.classList.add('is-active');
-    });
-  }
-
-  /* ---------------------------------------------------------------- */
-  /* Profile menu                                                       */
-  /* ---------------------------------------------------------------- */
-
-  function initProfileMenu() {
-    var chip = U.qs('.profile-chip');
-    if (!chip) return;
-
-    var user = window.Api ? window.Api.auth.getUser() : { name: 'Jeevan Varma', email: 'jeevan@company.com' };
-    var nameEl = chip.querySelector('.profile-chip__name');
-    if (nameEl && user && user.name) nameEl.textContent = user.name.split(' ')[0];
-
-    chip.style.cursor = 'pointer';
-    chip.style.position = 'relative';
-
-    var menu = null;
-    function closeMenu() {
-      if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
-      menu = null;
-      document.removeEventListener('click', onDocClick);
-    }
-    function onDocClick(e) {
-      if (!chip.contains(e.target)) closeMenu();
-    }
-    function openMenu() {
-      menu = document.createElement('div');
-      menu.style.cssText = 'position:absolute; right:0; top:calc(100% + 8px); background:var(--surface); ' +
-        'border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); ' +
-        'min-width:180px; padding:6px; z-index:60; font-size:var(--fs-sm);';
-      menu.innerHTML =
-        '<div style="padding:8px 10px; color:var(--text-tertiary); font-size:12px;">' + U.escapeHtml((user && user.email) || '') + '</div>' +
-        '<a href="settings.html" style="display:block; padding:8px 10px; border-radius:var(--radius-sm); color:var(--text-primary);">Settings</a>' +
-        '<a href="#" id="profileMenuLogout" style="display:block; padding:8px 10px; border-radius:var(--radius-sm); color:var(--color-error);">Log out</a>';
-      chip.appendChild(menu);
-      U.qsa('a', menu).forEach(function (a) {
-        U.on(a, 'mouseenter', function () { a.style.background = 'var(--surface-sunken)'; });
-        U.on(a, 'mouseleave', function () { a.style.background = ''; });
-      });
-      U.on(menu.querySelector('#profileMenuLogout'), 'click', function (e) {
-        e.preventDefault();
-        if (window.Api) window.Api.auth.logout();
-        window.location.href = 'login.html';
-      });
-      setTimeout(function () { document.addEventListener('click', onDocClick); }, 0);
-    }
-
-    U.on(chip, 'click', function () {
-      menu ? closeMenu() : openMenu();
-    });
-  }
-
-  /* ---------------------------------------------------------------- */
-  /* Notification bell                                                  */
-  /* ---------------------------------------------------------------- */
-
-  function initNotificationBell() {
-    var bell = U.qs('.topbar__actions .icon-btn[aria-label="Notifications"]');
-    if (!bell) return;
-
-    var mockNotifications = [
-      { title: 'Audit completed', desc: 'example.com scored 92/100', time: '2 min ago' },
-      { title: 'Critical issue found', desc: 'shopcraft.io — 3 broken links', time: '1 hour ago' },
-      { title: 'Weekly digest ready', desc: '4 sites summarized', time: 'Yesterday' }
-    ];
-
-    bell.style.position = 'relative';
-    var panel = null;
-
-    function closePanel() {
-      if (panel && panel.parentNode) panel.parentNode.removeChild(panel);
-      panel = null;
-      document.removeEventListener('click', onDocClick);
-    }
-    function onDocClick(e) {
-      if (!bell.contains(e.target)) closePanel();
-    }
-    function openPanel() {
-      var dot = bell.querySelector('.dot');
-      if (dot) dot.style.display = 'none';
-
-      panel = document.createElement('div');
-      panel.style.cssText = 'position:absolute; right:0; top:calc(100% + 8px); background:var(--surface); ' +
-        'border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); ' +
-        'width:280px; padding:10px; z-index:60;';
-      var itemsHtml = mockNotifications.map(function (n) {
-        return '<div style="padding:8px 10px; border-radius:var(--radius-sm);">' +
-          '<div style="font-weight:600; font-size:var(--fs-sm);">' + U.escapeHtml(n.title) + '</div>' +
-          '<div style="font-size:12px; color:var(--text-tertiary); margin-top:2px;">' + U.escapeHtml(n.desc) + ' · ' + n.time + '</div>' +
-          '</div>';
-      }).join('');
-      panel.innerHTML = '<div style="font-weight:700; font-size:var(--fs-sm); padding:6px 10px 10px;">Notifications</div>' + itemsHtml;
-      bell.appendChild(panel);
-      setTimeout(function () { document.addEventListener('click', onDocClick); }, 0);
-    }
-
-    U.on(bell, 'click', function (e) {
-      e.stopPropagation();
-      panel ? closePanel() : openPanel();
-    });
-  }
-
-  /* ---------------------------------------------------------------- */
-  /* Settings page (no dedicated settings.js — wired here)              */
-  /* ---------------------------------------------------------------- */
-
-  function initSettingsPage() {
-    var saveBtn = document.getElementById('saveSettingsBtn');
-    if (!saveBtn || !window.Api) return; // not on settings.html
-
-    var cancelBtn = document.getElementById('cancelSettingsBtn');
-    var copyKeyBtn = document.getElementById('copyApiKeyBtn');
-    var revokeKeyBtn = document.getElementById('revokeApiKeyBtn');
-    var generateKeyBtn = document.getElementById('generateApiKeyBtn');
-    var exportBtn = document.getElementById('exportDataBtn');
-    var swatches = U.qsa('.theme-swatch');
-    var apiKeyDisplay = document.getElementById('apiKeyDisplay');
-
-    var selectedTheme = U.storageGet(CFG.STORAGE_KEYS.THEME, 'light');
-
-    // Load persisted settings into the form
-    window.Api.settings.get().then(function (s) {
-      setVal('settingName', s.name);
-      setVal('settingEmail', s.email);
-      setVal('settingCompany', s.company);
-      setVal('settingAiProvider', s.aiProvider);
-      setChecked('notifyAuditCompleted', s.notifyAuditCompleted);
-      setChecked('notifyCriticalIssue', s.notifyCriticalIssue);
-      setChecked('notifyWeeklySummary', s.notifyWeeklySummary);
-      setVal('settingLanguage', s.language);
-      setVal('scheduleFrequency', s.scheduleFrequency);
-      setVal('scheduleTime', s.scheduleTime);
-    }).catch(function (err) {
-      window.Notifications.error('Couldn\'t load settings', err.message || 'Please refresh and try again.');
-    });
-
-    function setVal(id, value) {
-      var el = document.getElementById(id);
-      if (el && value != null) el.value = value;
-    }
-    function setChecked(id, value) {
-      var el = document.getElementById(id);
-      if (el) el.checked = !!value;
-    }
-    function getVal(id) {
-      var el = document.getElementById(id);
-      return el ? el.value : undefined;
-    }
-    function getChecked(id) {
-      var el = document.getElementById(id);
-      return el ? el.checked : undefined;
-    }
-
-    swatches.forEach(function (swatch) {
-      U.on(swatch, 'click', function () {
-        selectedTheme = swatch.dataset.themeChoice;
-        swatches.forEach(function (s) { s.classList.toggle('is-active', s === swatch); });
-        U.storageSet(CFG.STORAGE_KEYS.THEME, selectedTheme);
-        applyTheme(selectedTheme);
-      });
-    });
-
-    U.on(copyKeyBtn, 'click', function () {
-      window.Api.settings.get().then(function (s) {
-        return U.copyToClipboard(s.apiKey);
-      }).then(function () {
-        window.Notifications.success('Copied', 'API key copied to clipboard.');
-      }).catch(function (err) {
-        window.Notifications.error('Couldn\'t copy key', err.message || 'Please try again.');
-      });
-    });
-
-    U.on(revokeKeyBtn, 'click', function () {
-      window.Modal.confirm({
-        title: 'Revoke production key?',
-        body: 'Any integration using this key will stop working immediately. This can\'t be undone.',
-        confirmLabel: 'Revoke key',
-        dangerous: true,
-        onConfirm: function () {
-          window.Api.settings.regenerateApiKey().then(function (key) {
-            if (apiKeyDisplay) apiKeyDisplay.textContent = maskKey(key);
-            window.Notifications.warning('Key revoked', 'A new production key has been generated.');
-          }).catch(function (err) {
-            window.Notifications.error('Couldn\'t revoke key', err.message || 'Please try again.');
-          });
+      return (isJson ? res.json() : res.text()).then(function (data) {
+        if (!res.ok) {
+          var message = (data && data.detail) ? data.detail : (typeof data === 'string' && data) || 'Something went wrong. Please try again.';
+          if (res.status === 401) clearSession();
+          throw new Error(message);
         }
+        return data;
       });
     });
+  }
 
-    U.on(generateKeyBtn, 'click', function () {
-      window.Loader.setButtonLoading(generateKeyBtn, true, 'Generating…');
-      window.Api.settings.regenerateApiKey().then(function (key) {
-        if (apiKeyDisplay) apiKeyDisplay.textContent = maskKey(key);
-        window.Notifications.success('New key generated', 'Copy it now — you won\'t see the full key again.');
-      }).catch(function (err) {
-        window.Notifications.error('Couldn\'t generate key', err.message || 'Please try again.');
-      }).finally(function () {
-        window.Loader.setButtonLoading(generateKeyBtn, false);
-      });
+  // For endpoints returning a binary body (PDF export) rather than JSON.
+  function requestBlob(path) {
+    var headers = {};
+    var token = getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    return fetch(CFG.API_BASE_URL + path, { headers: headers }).then(function (res) {
+      if (!res.ok) throw new Error('Could not generate the PDF export.');
+      return res.blob();
     });
+  }
 
-    function maskKey(key) {
-      return key.slice(0, 8) + '••••••••••••' + key.slice(-4);
+  /* ---------------------------------------------------------------- */
+  /* Field mapping — backend (snake_case) -> frontend (camelCase)      */
+  /* ---------------------------------------------------------------- */
+
+  function mapAudit(a) {
+    if (!a) return a;
+    return {
+      id: a.id,
+      url: a.url,
+      label: a.label,
+      depth: a.depth,
+      status: a.status,
+      currentStep: a.current_step,
+      percent: a.percent,
+      score: a.overall_score,
+      breakdown: a.breakdown,
+      createdAt: a.created_at,
+      completedAt: a.completed_at
+    };
+  }
+
+  function mapStats(s) {
+    return {
+      totalAudits: s.total_audits,
+      seoIssues: s.seo_issues,
+      performanceScore: s.performance_score,
+      criticalIssues: s.critical_issues,
+      overall: s.overall,
+      breakdown: s.breakdown
+    };
+  }
+
+  function mapConsent(c) {
+    if (!c) return c;
+    return {
+      hasCookieBanner: c.has_cookie_banner,
+      bannerBlocksScriptsPreConsent: c.banner_blocks_scripts_pre_consent,
+      gdprCompliant: c.gdpr_compliant,
+      ccpaCompliant: c.ccpa_compliant,
+      privacyPolicyFound: c.privacy_policy_found,
+      privacyPolicyUrl: c.privacy_policy_url,
+      cookiesDetected: c.cookies_detected,
+      thirdPartyTrackers: c.third_party_trackers,
+      consentScore: c.consent_score,
+      bannerScreenshotUrl: c.banner_screenshot_url
+    };
+  }
+
+  function mapScoreCell(cell) {
+    return { module: cell.module, label: cell.label, score: cell.score, targetSection: cell.target_section };
+  }
+
+  function mapReport(r) {
+    if (!r) return r;
+    return {
+      auditId: r.audit_id,
+      url: r.url,
+      overall: r.overall,
+      generatedAt: r.generated_at,
+      scoreGrid: (r.score_grid || []).map(mapScoreCell),
+      findings: r.findings || [],
+      shareUrl: r.share_url
+    };
+  }
+
+  function mapSettings(s) {
+    return {
+      name: s.name,
+      email: s.email,
+      company: s.company,
+      aiProvider: s.ai_provider,
+      notifyAuditCompleted: s.notify_audit_completed,
+      notifyCriticalIssue: s.notify_critical_issue,
+      notifyWeeklySummary: s.notify_weekly_summary,
+      theme: s.theme,
+      language: s.language,
+      scheduleFrequency: s.schedule_frequency,
+      scheduleTime: s.schedule_time,
+      apiKey: s.api_key
+    };
+  }
+
+  function settingsPatchToBackend(patch) {
+    var map = {
+      name: 'name', email: 'email', company: 'company', aiProvider: 'ai_provider',
+      notifyAuditCompleted: 'notify_audit_completed', notifyCriticalIssue: 'notify_critical_issue',
+      notifyWeeklySummary: 'notify_weekly_summary', theme: 'theme', language: 'language',
+      scheduleFrequency: 'schedule_frequency', scheduleTime: 'schedule_time'
+    };
+    var out = {};
+    Object.keys(patch).forEach(function (key) {
+      if (map[key] && patch[key] !== undefined) out[map[key]] = patch[key];
+    });
+    return out;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* auth                                                                */
+  /* ---------------------------------------------------------------- */
+
+  var auth = {
+    getSession: getSession,
+    getUser: getUser,
+    getToken: getToken,
+
+    // Internal, passwordless login: email only, no password required.
+    loginWithEmail: function (email) {
+      return request('/auth/login-email', { method: 'POST', body: { email: email } })
+        .then(function (data) {
+          setSession({ token: data.token, user: data.user });
+          return data.user;
+        });
+    },
+
+    login: function (email, password) {
+      return request('/auth/login', { method: 'POST', body: { email: email, password: password } })
+        .then(function (data) {
+          setSession({ token: data.token, user: data.user });
+          return data.user;
+        });
+    },
+
+    register: function (name, email, password, company) {
+      return request('/auth/register', { method: 'POST', body: { name: name, email: email, password: password, company: company } })
+        .then(function (data) {
+          setSession({ token: data.token, user: data.user });
+          return data.user;
+        });
+    },
+
+    logout: function () {
+      var done = getToken() ? request('/auth/logout', { method: 'POST' }).catch(function () {}) : Promise.resolve();
+      return done.then(function () { clearSession(); });
     }
+  };
 
-    U.on(exportBtn, 'click', function () {
-      window.Api.settings.exportJson().then(function (data) {
-        U.downloadTextFile('auditpulse-settings.json', JSON.stringify(data, null, 2), 'application/json');
-        window.Notifications.info('Exported', 'Your workspace settings were downloaded as JSON.');
-      }).catch(function (err) {
-        window.Notifications.error('Export failed', err.message || 'Please try again.');
-      });
-    });
+  /* ---------------------------------------------------------------- */
+  /* audits                                                              */
+  /* ---------------------------------------------------------------- */
 
-    U.on(cancelBtn, 'click', function (e) {
-      e.preventDefault();
-      window.location.reload();
-    });
+  var POLL_INTERVAL_MS = 900;
 
-    U.on(saveBtn, 'click', function () {
-      var patch = {
-        name: getVal('settingName'),
-        email: getVal('settingEmail'),
-        company: getVal('settingCompany'),
-        aiProvider: getVal('settingAiProvider'),
-        notifyAuditCompleted: getChecked('notifyAuditCompleted'),
-        notifyCriticalIssue: getChecked('notifyCriticalIssue'),
-        notifyWeeklySummary: getChecked('notifyWeeklySummary'),
-        theme: selectedTheme,
-        language: getVal('settingLanguage'),
-        scheduleFrequency: getVal('scheduleFrequency'),
-        scheduleTime: getVal('scheduleTime')
+  var audits = {
+    getStats: function () {
+      return request('/audits/stats').then(mapStats);
+    },
+
+    getRecent: function (limit) {
+      return request('/audits/recent' + (limit ? ('?limit=' + encodeURIComponent(limit)) : ''))
+        .then(function (list) { return list.map(mapAudit); });
+    },
+
+    getConsent: function (auditId) {
+      return request('/audits/' + encodeURIComponent(auditId) + '/consent').then(mapConsent);
+    },
+
+    get: function (auditId) {
+      return request('/audits/' + encodeURIComponent(auditId)).then(mapAudit);
+    },
+
+    // Starts an audit, polls its progress, and resolves with the finished
+    // report once the pipeline completes. Calls onProgress({percent,
+    // stepId, status, elapsedLabel}) after every poll.
+    run: function (config, onProgress) {
+      var body = {
+        url: config.url,
+        depth: config.depth,
+        max_pages: config.maxPages,
+        modules: config.modules
       };
 
-      if (patch.email && !window.Validation.isValidEmail(patch.email)) {
-        window.Notifications.error('Invalid email', 'Please enter a valid profile email address.');
-        return;
-      }
+      return request('/audits/', { method: 'POST', body: body }).then(function (created) {
+        var auditId = created.id;
+        var startedAt = Date.now();
 
-      window.Loader.setButtonLoading(saveBtn, true, 'Saving…');
-      window.Api.settings.save(patch).then(function () {
-        window.Notifications.success('Settings saved', 'Your workspace preferences were updated.');
-      }).catch(function (err) {
-        window.Notifications.error('Couldn\'t save settings', err.message || 'Please try again.');
-      }).finally(function () {
-        window.Loader.setButtonLoading(saveBtn, false);
+        return new Promise(function (resolve, reject) {
+          function poll() {
+            request('/audits/' + auditId + '/progress').then(function (progress) {
+              var elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+              if (onProgress) {
+                onProgress({
+                  percent: progress.percent,
+                  stepId: progress.current_step,
+                  status: progress.status === 'completed' || progress.status === 'failed' ? 'pass' : 'running',
+                  elapsedLabel: elapsedSec + 's'
+                });
+              }
+
+              if (progress.status === 'completed') {
+                request('/reports/' + auditId).then(mapReport).then(function (report) {
+                  resolve({ id: auditId, overall: report.overall, url: report.url });
+                }).catch(reject);
+              } else if (progress.status === 'failed') {
+                reject(new Error('The audit failed while running. Please try again.'));
+              } else {
+                setTimeout(poll, POLL_INTERVAL_MS);
+              }
+            }).catch(reject);
+          }
+          poll();
+        });
       });
-    });
-  }
+    }
+  };
 
-  // Exposed so settings.js-equivalent code above can call the same theme logic
-  window.__applyTheme = applyTheme;
+  /* ---------------------------------------------------------------- */
+  /* reports                                                             */
+  /* ---------------------------------------------------------------- */
+
+  var reports = {
+    get: function (auditId) {
+      return request('/reports/' + encodeURIComponent(auditId)).then(mapReport);
+    },
+
+    // AI-enriched report: base report + prioritized recommendations.
+    getFull: function (auditId) {
+      return Promise.all([
+        request('/reports/' + encodeURIComponent(auditId)).then(mapReport),
+        request('/ai/' + encodeURIComponent(auditId) + '/priorities')
+      ]).then(function (results) {
+        var report = results[0];
+        var priorities = (results[1] && results[1].priorities) || [];
+        report.priorities = priorities.map(function (p) {
+          return { title: p.title, description: p.description, severity: p.severity };
+        });
+        return report;
+      });
+    },
+
+    share: function (auditId) {
+      return request('/reports/' + encodeURIComponent(auditId) + '/share', { method: 'POST' })
+        .then(function (data) { return data.share_url; });
+    },
+
+    exportPdfBlob: function (auditId) {
+      return requestBlob('/reports/' + encodeURIComponent(auditId) + '/export');
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /* settings                                                            */
+  /* ---------------------------------------------------------------- */
+
+  var settings = {
+    get: function () {
+      return request('/settings/').then(mapSettings);
+    },
+
+    save: function (patch) {
+      return request('/settings/', { method: 'PATCH', body: settingsPatchToBackend(patch) }).then(mapSettings);
+    },
+
+    regenerateApiKey: function () {
+      return request('/settings/api-key/regenerate', { method: 'POST' }).then(function (data) { return data.api_key; });
+    },
+
+    exportJson: function () {
+      return request('/settings/export').then(function (data) {
+        return {
+          exportedAt: data.exported_at,
+          settings: mapSettings(data.settings),
+          audits: (data.audits || []).map(mapAudit)
+        };
+      });
+    }
+  };
+
+  return {
+    auth: auth,
+    audits: audits,
+    reports: reports,
+    settings: settings
+  };
 })();
