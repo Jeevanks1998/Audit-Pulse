@@ -62,7 +62,12 @@ window.Api = (function () {
 
       return (isJson ? res.json() : res.text()).then(function (data) {
         if (!res.ok) {
-          var message = (data && data.detail) ? data.detail : (typeof data === 'string' && data) || 'Something went wrong. Please try again.';
+          // Backend error shape is { success:false, error, details? } —
+          // see backend/middleware/errors.py. `error` is the human-readable
+          // message; `details` (validation errors) is an array, not a string.
+          var message = (data && typeof data.error === 'string' && data.error)
+            ? data.error
+            : (typeof data === 'string' && data) || 'Something went wrong. Please try again.';
           if (res.status === 401) clearSession();
           throw new Error(message);
         }
@@ -162,6 +167,21 @@ window.Api = (function () {
       scheduleFrequency: s.schedule_frequency,
       scheduleTime: s.schedule_time,
       apiKey: s.api_key
+    };
+  }
+
+  function mapSchedule(s) {
+    if (!s) return s;
+    return {
+      id: s.id,
+      url: s.url,
+      frequency: s.frequency,
+      timeLabel: s.time_label,
+      depth: s.depth,
+      modules: s.modules || [],
+      isActive: s.is_active,
+      lastRunAt: s.last_run_at,
+      nextRunAt: s.next_run_at
     };
   }
 
@@ -361,10 +381,49 @@ window.Api = (function () {
     }
   };
 
+  /* ---------------------------------------------------------------- */
+  /* scheduler — recurring per-site audit schedules                     */
+  /* ---------------------------------------------------------------- */
+
+  var scheduler = {
+    list: function () {
+      return request('/scheduler/').then(function (list) { return list.map(mapSchedule); });
+    },
+
+    create: function (config) {
+      var body = {
+        url: config.url,
+        frequency: config.frequency,
+        time_label: config.timeLabel,
+        depth: config.depth || 'homepage',
+        modules: config.modules || []
+      };
+      return request('/scheduler/', { method: 'POST', body: body }).then(mapSchedule);
+    },
+
+    update: function (scheduleId, patch) {
+      var map = { frequency: 'frequency', timeLabel: 'time_label', depth: 'depth', modules: 'modules', isActive: 'is_active' };
+      var body = {};
+      Object.keys(patch).forEach(function (key) {
+        if (map[key] && patch[key] !== undefined) body[map[key]] = patch[key];
+      });
+      return request('/scheduler/' + encodeURIComponent(scheduleId), { method: 'PATCH', body: body }).then(mapSchedule);
+    },
+
+    remove: function (scheduleId) {
+      return request('/scheduler/' + encodeURIComponent(scheduleId), { method: 'DELETE' });
+    },
+
+    runNow: function (scheduleId) {
+      return request('/scheduler/' + encodeURIComponent(scheduleId) + '/run-now', { method: 'POST' }).then(mapAudit);
+    }
+  };
+
   return {
     auth: auth,
     audits: audits,
     reports: reports,
-    settings: settings
+    settings: settings,
+    scheduler: scheduler
   };
 })();
