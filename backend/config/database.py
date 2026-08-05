@@ -6,7 +6,8 @@ Async SQLAlchemy engine + session management. Models (in a future
 depend on `get_db` to obtain a request-scoped AsyncSession.
 """
 
-from typing import AsyncGenerator
+import asyncio
+from typing import AsyncGenerator, Coroutine, TypeVar
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -14,6 +15,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+
+_T = TypeVar("_T")
 
 from config.logging import logger
 from config.settings import settings
@@ -66,3 +69,36 @@ async def close_db() -> None:
     """Dispose of the engine's connection pool on shutdown."""
     await engine.dispose()
     logger.info("Database connections closed")
+
+
+def run_async(coro: Coroutine[None, None, _T]) -> _T:
+    """Run a coroutine in its own event loop, for Celery tasks.
+
+    Celery tasks are synchronous, so every task entry point (scheduler/jobs.py,
+    scheduler/reminders.py, workers/audit_worker.py, workers/report_worker.py)
+    wraps its async body in `asyncio.run(...)`. That gives each task run a
+    brand-new event loop — but `engine`/`AsyncSessionLocal` above are created
+    once at process import time and share a single asyncpg connection pool
+    across every task run in the worker process.
+
+    asyncpg connections are bound to the event loop they were opened on.
+    When `asyncio.run()` closes its loop at the end of a task, any pooled
+    connection is left attached to a now-dead loop. The *next* task's
+    `asyncio.run()` creates a different loop and blows up trying to reuse
+    that connection ("Event loop is closed" / "got Future ... attached to
+    a different loop").
+
+    Disposing the pool here — still inside the same loop, right before it
+    closes — closes every connection cleanly so the pool starts empty next
+    time, and the next task opens fresh connections bound to its own loop.
+    Use this instead of calling `asyncio.run()` directly in any task that
+    touches the database.
+    """
+
+    async def _wrapped() -> _T:
+        try:
+            return await coro
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_wrapped())
