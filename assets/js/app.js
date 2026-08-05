@@ -170,12 +170,6 @@
     var bell = U.qs('.topbar__actions .icon-btn[aria-label="Notifications"]');
     if (!bell) return;
 
-    var mockNotifications = [
-      { title: 'Audit completed', desc: 'example.com scored 92/100', time: '2 min ago' },
-      { title: 'Critical issue found', desc: 'shopcraft.io — 3 broken links', time: '1 hour ago' },
-      { title: 'Weekly digest ready', desc: '4 sites summarized', time: 'Yesterday' }
-    ];
-
     bell.style.position = 'relative';
     var panel = null;
 
@@ -195,13 +189,12 @@
       panel.style.cssText = 'position:absolute; right:0; top:calc(100% + 8px); background:var(--surface); ' +
         'border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-lg); ' +
         'width:280px; padding:10px; z-index:60;';
-      var itemsHtml = mockNotifications.map(function (n) {
-        return '<div style="padding:8px 10px; border-radius:var(--radius-sm);">' +
-          '<div style="font-weight:600; font-size:var(--fs-sm);">' + U.escapeHtml(n.title) + '</div>' +
-          '<div style="font-size:12px; color:var(--text-tertiary); margin-top:2px;">' + U.escapeHtml(n.desc) + ' · ' + n.time + '</div>' +
-          '</div>';
-      }).join('');
-      panel.innerHTML = '<div style="font-weight:700; font-size:var(--fs-sm); padding:6px 10px 10px;">Notifications</div>' + itemsHtml;
+      // NOTE: there is no notifications backend endpoint yet (see
+      // DEPLOYMENT_CHECKLIST.md "Add real notifications"). Rather than
+      // showing fabricated audit results here, this is an honest empty
+      // state until that endpoint exists.
+      panel.innerHTML = '<div style="font-weight:700; font-size:var(--fs-sm); padding:6px 10px 10px;">Notifications</div>' +
+        '<div style="padding:8px 10px; font-size:var(--fs-sm); color:var(--text-tertiary);">Notifications aren\'t set up yet. You\'ll see updates here once the notifications service is live.</div>';
       bell.appendChild(panel);
       setTimeout(function () { document.addEventListener('click', onDocClick); }, 0);
     }
@@ -242,6 +235,7 @@
       setVal('settingLanguage', s.language);
       setVal('scheduleFrequency', s.scheduleFrequency);
       setVal('scheduleTime', s.scheduleTime);
+      if (apiKeyDisplay && s.apiKey) apiKeyDisplay.textContent = maskKey(s.apiKey);
     });
 
     function setVal(id, value) {
