@@ -25,6 +25,15 @@ class UserLogin(BaseModel):
     password: str = Field(min_length=1)
 
 
+class UserEmailLogin(BaseModel):
+    """Internal, passwordless login — email only. See api/auth.py's
+    `/auth/login-email` route: finds-or-creates the user by email and
+    signs them straight in, no password required."""
+
+    email: EmailStr
+    name: Optional[str] = None
+
+
 class UserOut(BaseModel):
     id: int
     name: str
