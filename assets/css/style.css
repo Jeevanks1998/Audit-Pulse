@@ -483,6 +483,17 @@ table.dtable { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); 
 .text-tertiary { color: var(--text-tertiary); }
 .text-sm { font-size: var(--fs-sm); }
 
+/* ---- Field-level validation errors (login.html, audit.html, settings.html) ---- */
+.field__error, .url-error {
+  display: none;
+  font-size: 12px;
+  color: var(--color-error);
+  margin-top: 6px;
+}
+.field__error.is-visible, .url-error.is-visible { display: block; }
+.form-field input.is-invalid, .form-field select.is-invalid,
+input.is-invalid { border-color: var(--color-error) !important; }
+
 /* ---- Scrollbar polish ---- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 10px; border: 3px solid var(--bg); }
