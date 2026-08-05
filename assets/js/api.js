@@ -214,8 +214,19 @@ window.Api = (function () {
     },
 
     logout: function () {
-      var done = getToken() ? request('/auth/logout', { method: 'POST' }).catch(function () {}) : Promise.resolve();
-      return done.then(function () { clearSession(); });
+      // Clear the local session immediately so any page that checks
+      // getSession() right after (e.g. login.html's "already signed in"
+      // redirect) sees a logged-out state, even if this tab navigates
+      // away before the network call below finishes. Capture the token
+      // first since clearSession() wipes it and request() can no longer
+      // read it off the (now-cleared) session.
+      var token = getToken();
+      clearSession();
+      if (!token) return Promise.resolve();
+      return request('/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token }
+      }).catch(function () {});
     }
   };
 
